@@ -4,6 +4,20 @@
 
 This reference lists all 37 tools registered under the `resiliency` namespace. Parameters marked **required** must be collected before invocation. `tenant` is optional for every tool unless the active environment requires it.
 
+## Private-stamp routing
+
+Set both variables before starting the MCP server when Resilience Management traffic must use a
+private stamp:
+
+```text
+AZURE_RESILIENCY_ARM_ENDPOINT=https://centraluseuap.management.azure.com
+AZURE_RESILIENCY_ROUTING_LOCATION=privatestamp3
+```
+
+The Resilience Management service rewrites every generated ARM request to the configured HTTPS
+origin and adds `x-ms-rhub-routing-location` to every request, including LRO polling. The variables
+must be supplied together; partial or malformed routing configuration fails closed.
+
 ## Usage Plans
 
 | Tool | Purpose | Parameters |
