@@ -31,6 +31,10 @@ public class ResilienceManagementSetup : IAreaSetup
         services.AddSingleton<IResilienceManagementService, ResilienceManagementService>();
 
         services.AddSingleton<GoalAssignmentGetCommand>();
+        services.AddSingleton<GoalAssignmentCreateCommand>();
+        services.AddSingleton<GoalAssignmentUpdateResourcesCommand>();
+        services.AddSingleton<GoalAssignmentRefreshResourcesCommand>();
+        services.AddSingleton<GoalAssignmentDeleteCommand>();
         services.AddSingleton<GoalResourceGetCommand>();
         services.AddSingleton<UsagePlanGetCommand>();
         services.AddSingleton<UsagePlanCreateCommand>();
@@ -94,6 +98,10 @@ public class ResilienceManagementSetup : IAreaSetup
 
         // Register commands
         assignments.AddCommand<GoalAssignmentGetCommand>(serviceProvider);
+        assignments.AddCommand<GoalAssignmentCreateCommand>(serviceProvider);
+        assignments.AddCommand<GoalAssignmentUpdateResourcesCommand>(serviceProvider);
+        assignments.AddCommand<GoalAssignmentRefreshResourcesCommand>(serviceProvider);
+        assignments.AddCommand<GoalAssignmentDeleteCommand>(serviceProvider);
         goalResources.AddCommand<GoalResourceGetCommand>(serviceProvider);
 
         // Create usageplan subgroup

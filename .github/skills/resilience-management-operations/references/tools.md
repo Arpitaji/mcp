@@ -22,9 +22,16 @@ Usage-plan and enrollment names are 3–24 characters containing letters, number
 | Tool | Purpose | Parameters |
 |---|---|---|
 | `mcp_azure_mcp_ser_resiliency_goal_assignment_get` | List goal assignments or get one | **`service-group`**, `name?`, `tenant?` |
+| `mcp_azure_mcp_ser_resiliency_goal_assignment_create` | Create or idempotently update a goal assignment and wait for provisioning | **`service-group`**, **`goal-assignment`**, `goal-template-id?`, `tenant?` |
+| `mcp_azure_mcp_ser_resiliency_goal_assignment_update-resources` | Submit a validated bulk Goal Resource update and return ARM operation tracking | **`service-group`**, **`goal-assignment`**, **`resources`** (JSON array), `tenant?` |
+| `mcp_azure_mcp_ser_resiliency_goal_assignment_refresh-resources` | Start Goal Resource discovery/reassessment and return ARM operation tracking | **`service-group`**, **`goal-assignment`**, `tenant?` |
+| `mcp_azure_mcp_ser_resiliency_goal_assignment_delete` | Delete a goal assignment and its provider-owned children during approved cleanup | **`service-group`**, **`goal-assignment`**, `tenant?` |
 | `mcp_azure_mcp_ser_resiliency_goal_resource_get` | List assignment members or get one | **`service-group`**, **`goal-assignment`**, `name?`, `tenant?` |
 
-These tools are read-only. Omit `name` to list IDs and names; provide it for full details.
+The `get` tools are read-only. Omit `name` to list IDs and names; provide it for full details.
+Goal assignment create defaults `goal-template-id` to the service group ID for deployments where
+goal templates are deprecated. Update and refresh return `operationId`, `status`, and
+`hasCompleted`; retain that evidence before polling the assignment and Goal Resources.
 
 ## Drills
 

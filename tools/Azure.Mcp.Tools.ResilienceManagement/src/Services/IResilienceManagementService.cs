@@ -13,6 +13,14 @@ public interface IResilienceManagementService
 
     Task<GoalAssignmentInfo> GetGoalAssignmentAsync(string serviceGroup, string goalAssignment, string? tenant = null, CancellationToken cancellationToken = default);
 
+    Task<GoalAssignmentInfo> CreateGoalAssignmentAsync(string serviceGroup, string goalAssignment, string? goalTemplateId = null, string? tenant = null, CancellationToken cancellationToken = default);
+
+    Task<GoalAssignmentOperationResult> UpdateGoalAssignmentResourcesAsync(string serviceGroup, string goalAssignment, UpdateGoalResourceContent content, string? tenant = null, CancellationToken cancellationToken = default);
+
+    Task<GoalAssignmentOperationResult> RefreshGoalAssignmentResourcesAsync(string serviceGroup, string goalAssignment, string? tenant = null, CancellationToken cancellationToken = default);
+
+    Task<bool> DeleteGoalAssignmentAsync(string serviceGroup, string goalAssignment, string? tenant = null, CancellationToken cancellationToken = default);
+
     Task<IEnumerable<ResourceSummary>> ListUsagePlansAsync(string resourceGroup, string subscription, string? tenant = null, CancellationToken cancellationToken = default);
 
     Task<UsagePlanInfo> GetUsagePlanAsync(string resourceGroup, string usagePlan, string subscription, string? tenant = null, CancellationToken cancellationToken = default);

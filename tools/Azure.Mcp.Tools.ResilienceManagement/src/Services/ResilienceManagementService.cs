@@ -20,6 +20,7 @@ public sealed class ResilienceManagementService(IAzureService azureService)
     private static readonly TimeSpan RecoveryPlanPollingInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RecoveryPlanOperationTimeout = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan UsagePlanOperationTimeout = TimeSpan.FromMinutes(10);
+    private static readonly TimeSpan GoalAssignmentOperationTimeout = TimeSpan.FromMinutes(10);
 
     // The Drills backend reads the per-operation id from the operationId query parameter, but the generated SDK only
     // emits the operation-id header. Install a policy that mirrors the header into the query for long-running operations.
@@ -73,6 +74,129 @@ public sealed class ResilienceManagementService(IAzureService azureService)
 
         return MapGoalAssignment(resource.Data);
     }
+
+    public Task<GoalAssignmentInfo> CreateGoalAssignmentAsync(
+        string serviceGroup,
+        string goalAssignment,
+        string? goalTemplateId = null,
+        string? tenant = null,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWithTimeoutAsync(
+            async token =>
+            {
+                ArmClient armClient = await CreateArmClientAsync(
+                    tenantIdOrName: tenant,
+                    cancellationToken: token);
+                var serviceGroupId = new ResourceIdentifier(
+                    $"/providers/Microsoft.Management/serviceGroups/{serviceGroup}");
+                GoalAssignmentCollection assignments =
+                    armClient.GetGoalAssignments(serviceGroupId);
+                var data = new GoalAssignmentData
+                {
+                    Properties = new GoalAssignmentProperties(
+                        new ResourceIdentifier(goalTemplateId ?? serviceGroupId.ToString()),
+                        GoalAssignmentType.Resiliency),
+                };
+                await assignments.CreateOrUpdateAsync(
+                    WaitUntil.Completed,
+                    goalAssignment,
+                    data,
+                    token);
+                GoalAssignmentResource assignment =
+                    await assignments.GetAsync(goalAssignment, token);
+                return MapGoalAssignment(assignment.Data);
+            },
+            "goal assignment create request",
+            GoalAssignmentOperationTimeout,
+            cancellationToken);
+
+    public async Task<GoalAssignmentOperationResult> UpdateGoalAssignmentResourcesAsync(
+        string serviceGroup,
+        string goalAssignment,
+        UpdateGoalResourceContent content,
+        string? tenant = null,
+        CancellationToken cancellationToken = default)
+    {
+        GoalAssignmentResource assignment = await GetGoalAssignmentResourceAsync(
+            serviceGroup,
+            goalAssignment,
+            tenant,
+            cancellationToken);
+        ArmOperation operation = await assignment.UpdateGoalResourcesAsync(
+            WaitUntil.Started,
+            content,
+            cancellationToken);
+        return CreateGoalAssignmentOperationResult(operation);
+    }
+
+    public async Task<GoalAssignmentOperationResult> RefreshGoalAssignmentResourcesAsync(
+        string serviceGroup,
+        string goalAssignment,
+        string? tenant = null,
+        CancellationToken cancellationToken = default)
+    {
+        GoalAssignmentResource assignment = await GetGoalAssignmentResourceAsync(
+            serviceGroup,
+            goalAssignment,
+            tenant,
+            cancellationToken);
+        ArmOperation operation = await assignment.RefreshGoalResourcesAsync(
+            WaitUntil.Started,
+            cancellationToken);
+        return CreateGoalAssignmentOperationResult(operation);
+    }
+
+    public Task<bool> DeleteGoalAssignmentAsync(
+        string serviceGroup,
+        string goalAssignment,
+        string? tenant = null,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWithTimeoutAsync(
+            async token =>
+            {
+                ArmClient armClient = await CreateArmClientAsync(
+                    tenantIdOrName: tenant,
+                    cancellationToken: token);
+                var id = GoalAssignmentResource.CreateResourceIdentifier(
+                    serviceGroup,
+                    goalAssignment);
+                GoalAssignmentResource assignment =
+                    armClient.GetGoalAssignmentResource(id);
+                try
+                {
+                    await assignment.DeleteAsync(WaitUntil.Completed, token);
+                    return true;
+                }
+                catch (RequestFailedException exception) when (exception.Status == 404)
+                {
+                    return false;
+                }
+            },
+            "goal assignment delete request",
+            GoalAssignmentOperationTimeout,
+            cancellationToken);
+
+    private async Task<GoalAssignmentResource> GetGoalAssignmentResourceAsync(
+        string serviceGroup,
+        string goalAssignment,
+        string? tenant,
+        CancellationToken cancellationToken)
+    {
+        ArmClient armClient = await CreateArmClientAsync(
+            tenantIdOrName: tenant,
+            cancellationToken: cancellationToken);
+        var id = GoalAssignmentResource.CreateResourceIdentifier(
+            serviceGroup,
+            goalAssignment);
+        return await armClient.GetGoalAssignmentResource(id).GetAsync(cancellationToken);
+    }
+
+    private static GoalAssignmentOperationResult CreateGoalAssignmentOperationResult(
+        ArmOperation operation) =>
+        new(
+            operation.Id,
+            operation.HasCompleted ? "Completed" : "Accepted",
+            operation.HasCompleted);
 
     private static GoalAssignmentInfo MapGoalAssignment(GoalAssignmentData data)
     {

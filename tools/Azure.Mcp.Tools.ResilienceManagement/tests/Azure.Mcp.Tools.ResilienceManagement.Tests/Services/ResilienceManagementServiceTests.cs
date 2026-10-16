@@ -92,6 +92,67 @@ public sealed class ResilienceManagementServiceTests
         Assert.Equal(result, handler.QueryOperationId);
     }
 
+    [Fact]
+    public async Task UpdateGoalAssignmentResourcesAsync_UsesBulkActionAndReturnsTracking()
+    {
+        var handler = new GoalAssignmentActionHandler("updateGoalResources");
+        var service = CreateService(handler);
+        var resource = new GoalMembersData
+        {
+            Properties = new GoalResourceProperties(
+                new ResourceIdentifier(
+                    "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/storage1"),
+                ExclusionState.Excluded,
+                AttestationState.NotAttested)
+            {
+                DisasterRecoveryGoalParticipation = ExclusionState.Included,
+                DisasterRecoveryAttestationStatus = AttestationState.NotAttested,
+            },
+        };
+
+        GoalAssignmentOperationResult result =
+            await service.UpdateGoalAssignmentResourcesAsync(
+                "sg1",
+                "goal1",
+                new UpdateGoalResourceContent([resource]),
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(result.HasCompleted);
+        Assert.Equal("Accepted", result.Status);
+        Assert.Equal("goal-test", result.OperationId);
+        Assert.Contains(
+            handler.Requests,
+            request => request.Method == HttpMethod.Post &&
+                request.Uri.AbsolutePath.EndsWith(
+                    "/goalAssignments/goal1/updateGoalResources",
+                    StringComparison.OrdinalIgnoreCase) &&
+                request.Body.Contains(
+                    "\"resourceArmId\":\"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/storage1\"",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task RefreshGoalAssignmentResourcesAsync_UsesRefreshAction()
+    {
+        var handler = new GoalAssignmentActionHandler("refreshGoalResources");
+        var service = CreateService(handler);
+
+        GoalAssignmentOperationResult result =
+            await service.RefreshGoalAssignmentResourcesAsync(
+                "sg1",
+                "goal1",
+                cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.False(result.HasCompleted);
+        Assert.Equal("Accepted", result.Status);
+        Assert.Contains(
+            handler.Requests,
+            request => request.Method == HttpMethod.Post &&
+                request.Uri.AbsolutePath.EndsWith(
+                    "/goalAssignments/goal1/refreshGoalResources",
+                    StringComparison.OrdinalIgnoreCase));
+    }
+
     [Theory]
     [InlineData("Recovery job retry")]
     [InlineData("Recovery job resume")]
@@ -1375,6 +1436,55 @@ public sealed class ResilienceManagementServiceTests
                 "Azure-AsyncOperation",
                 "https://management.azure.com/providers/Microsoft.AzureResilienceManagement/locations/westus2/operations/test?api-version=2025-08-01");
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class GoalAssignmentActionHandler(string action) : HttpMessageHandler
+    {
+        public List<(HttpMethod Method, Uri Uri, string Body)> Requests { get; } = [];
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            string body = request.Content is null
+                ? string.Empty
+                : await request.Content.ReadAsStringAsync(cancellationToken);
+            Requests.Add((request.Method, request.RequestUri!, body));
+            if (request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """
+                        {
+                          "id": "/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.AzureResilienceManagement/goalAssignments/goal1",
+                          "name": "goal1",
+                          "type": "Microsoft.AzureResilienceManagement/goalAssignments",
+                          "properties": {
+                            "goalTemplateId": "/providers/Microsoft.Management/serviceGroups/sg1",
+                            "goalAssignmentType": "Resiliency",
+                            "provisioningState": "Succeeded"
+                          }
+                        }
+                        """,
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+            }
+
+            Assert.EndsWith(
+                $"/goalAssignments/goal1/{action}",
+                request.RequestUri!.AbsolutePath,
+                StringComparison.OrdinalIgnoreCase);
+            var response = new HttpResponseMessage(HttpStatusCode.Accepted)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json"),
+            };
+            response.Headers.TryAddWithoutValidation(
+                "Azure-AsyncOperation",
+                "https://management.azure.com/providers/Microsoft.AzureResilienceManagement/locations/westus2/operations/goal-test?api-version=2025-08-01");
+            return response;
         }
     }
 
