@@ -506,6 +506,47 @@ public sealed class ResilienceManagementServiceTests
     }
 
     [Fact]
+    public async Task WaitForLroOrObservedResultAsync_ReturnsObservedResultWhenLroDoesNotComplete()
+    {
+        string result = await ResilienceManagementService.WaitForLroOrObservedResultAsync<string>(
+            async token =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                return null;
+            },
+            _ => Task.FromResult("observed-job"),
+            CancellationToken.None);
+
+        Assert.Equal("observed-job", result);
+    }
+
+    [Fact]
+    public async Task WaitForLroOrObservedResultAsync_ReturnsLroResultWhenAvailable()
+    {
+        string result = await ResilienceManagementService.WaitForLroOrObservedResultAsync(
+            _ => Task.FromResult<string?>("lro-job"),
+            async token =>
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+                return "observed-job";
+            },
+            CancellationToken.None);
+
+        Assert.Equal("lro-job", result);
+    }
+
+    [Fact]
+    public async Task WaitForLroOrObservedResultAsync_FallsBackWhenLroHasNoResult()
+    {
+        string result = await ResilienceManagementService.WaitForLroOrObservedResultAsync(
+            _ => Task.FromResult<string?>(null),
+            _ => Task.FromResult("observed-job"),
+            CancellationToken.None);
+
+        Assert.Equal("observed-job", result);
+    }
+
+    [Fact]
     public void CreateRecoveryGroupsSetting_ForNewPlan_GeneratesDefaultGroupId()
     {
         RecoveryGroupsSetting result = ResilienceManagementService.CreateRecoveryGroupsSetting(null, null);

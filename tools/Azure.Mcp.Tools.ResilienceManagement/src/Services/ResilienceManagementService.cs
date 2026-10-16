@@ -1042,12 +1042,17 @@ public sealed class ResilienceManagementService(IAzureService azureService)
         HashSet<string> existingRecoveryJobIds = await GetRecoveryJobIdsAsync(recoveryJobs, cancellationToken);
         operationId = ResolveOperationId(operationId);
         ArmOperation operation = await recoveryPlanResource.CheckReadinessAsync(WaitUntil.Started, operationId, cancellationToken);
-        await WaitForRecoveryPlanLroCompletionAsync(operation, RecoveryPlanOperationTimeout, cancellationToken);
-        ResourceIdentifier recoveryJobResourceId = TryGetRecoveryJobResourceId(
-                operation.GetRawResponse().Content,
-                serviceGroup,
-                recoveryPlan)
-            ?? await WaitForNewReadinessJobAsync(recoveryJobs, existingRecoveryJobIds, cancellationToken);
+        ResourceIdentifier recoveryJobResourceId = await WaitForLroOrObservedResultAsync(
+            async token =>
+            {
+                await WaitForRecoveryPlanLroCompletionAsync(operation, RecoveryPlanOperationTimeout, token);
+                return TryGetRecoveryJobResourceId(
+                    operation.GetRawResponse().Content,
+                    serviceGroup,
+                    recoveryPlan);
+            },
+            token => WaitForNewReadinessJobAsync(recoveryJobs, existingRecoveryJobIds, token),
+            cancellationToken);
         string recoveryJobId = recoveryJobResourceId.Name;
 
         RecoveryJobResource recoveryJob = armClient.GetRecoveryJobResource(recoveryJobResourceId);
@@ -1239,6 +1244,33 @@ public sealed class ResilienceManagementService(IAzureService azureService)
         status.Equals("Failed", StringComparison.OrdinalIgnoreCase) ||
         status.Equals("Skipped", StringComparison.OrdinalIgnoreCase) ||
         status.Equals("Cancelled", StringComparison.OrdinalIgnoreCase);
+
+    internal static async Task<T> WaitForLroOrObservedResultAsync<T>(
+        Func<CancellationToken, Task<T?>> waitForLroResult,
+        Func<CancellationToken, Task<T>> waitForObservedResult,
+        CancellationToken cancellationToken)
+        where T : class
+    {
+        using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        Task<T?> lroTask = waitForLroResult(linkedCancellation.Token);
+        Task<T> observedTask = waitForObservedResult(linkedCancellation.Token);
+
+        try
+        {
+            Task firstCompleted = await Task.WhenAny((Task)lroTask, observedTask);
+            if (firstCompleted == observedTask)
+            {
+                return await observedTask;
+            }
+
+            T? lroResult = await lroTask;
+            return lroResult ?? await observedTask;
+        }
+        finally
+        {
+            await linkedCancellation.CancelAsync();
+        }
+    }
 
     private static async Task<RecoveryJobResource> WaitForRecoveryJobCompletionAsync(
         RecoveryJobResource recoveryJob,

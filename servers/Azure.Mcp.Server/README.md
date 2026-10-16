@@ -1378,6 +1378,8 @@ For customer-hosted ADME instances, pass the resource application ID or App ID U
 * "Create a zonal resilience drill 'my-drill' in service group 'my-service-group'"
 * "Get the resilience drill 'my-drill' in service group 'my-service-group'"
 * "List all resilience drills in service group 'my-service-group'"
+
+Recovery plan readiness checks observe the Recovery Job concurrently with the action operation, so a terminal provider result is returned even if the action's long-running-operation status remains active.
 * "List all resources targeted by drill 'my-drill' in service group 'my-service-group'"
 * "Get drill resource 'my-resource' for drill 'my-drill' in service group 'my-service-group'"
 * "Start resilience drill 'my-drill' in service group 'my-service-group' in Failover mode"
