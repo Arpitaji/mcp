@@ -201,8 +201,8 @@ public sealed class ResilienceManagementServiceTests
                 new UpdateGoalResourceContent([resource]),
                 cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.False(result.HasCompleted);
-        Assert.Equal("Accepted", result.Status);
+        Assert.True(result.HasCompleted);
+        Assert.Equal("Completed", result.Status);
         Assert.Equal("goal-test", result.OperationId);
         Assert.Contains(
             handler.Requests,
@@ -227,8 +227,8 @@ public sealed class ResilienceManagementServiceTests
                 "goal1",
                 cancellationToken: TestContext.Current.CancellationToken);
 
-        Assert.False(result.HasCompleted);
-        Assert.Equal("Accepted", result.Status);
+        Assert.True(result.HasCompleted);
+        Assert.Equal("Completed", result.Status);
         Assert.Contains(
             handler.Requests,
             request => request.Method == HttpMethod.Post &&
@@ -1557,6 +1557,19 @@ public sealed class ResilienceManagementServiceTests
                 ? string.Empty
                 : await request.Content.ReadAsStringAsync(cancellationToken);
             Requests.Add((request.Method, request.RequestUri!, body));
+            if (request.Method == HttpMethod.Get &&
+                request.RequestUri!.AbsolutePath.Contains(
+                    "/operations/",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        """{"status":"Succeeded"}""",
+                        Encoding.UTF8,
+                        "application/json"),
+                };
+            }
             if (request.Method == HttpMethod.Get)
             {
                 return new HttpResponseMessage(HttpStatusCode.OK)

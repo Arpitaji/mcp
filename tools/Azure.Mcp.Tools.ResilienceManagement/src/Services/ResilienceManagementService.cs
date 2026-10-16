@@ -121,41 +121,51 @@ public sealed class ResilienceManagementService(IAzureService azureService)
             GoalAssignmentOperationTimeout,
             cancellationToken);
 
-    public async Task<GoalAssignmentOperationResult> UpdateGoalAssignmentResourcesAsync(
+    public Task<GoalAssignmentOperationResult> UpdateGoalAssignmentResourcesAsync(
         string serviceGroup,
         string goalAssignment,
         UpdateGoalResourceContent content,
         string? tenant = null,
-        CancellationToken cancellationToken = default)
-    {
-        GoalAssignmentResource assignment = await GetGoalAssignmentResourceAsync(
-            serviceGroup,
-            goalAssignment,
-            tenant,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWithTimeoutAsync(
+            async token =>
+            {
+                GoalAssignmentResource assignment = await GetGoalAssignmentResourceAsync(
+                    serviceGroup,
+                    goalAssignment,
+                    tenant,
+                    token);
+                ArmOperation operation = await assignment.UpdateGoalResourcesAsync(
+                    WaitUntil.Completed,
+                    content,
+                    token);
+                return CreateGoalAssignmentOperationResult(operation);
+            },
+            "goal assignment resource update request",
+            GoalAssignmentOperationTimeout,
             cancellationToken);
-        ArmOperation operation = await assignment.UpdateGoalResourcesAsync(
-            WaitUntil.Started,
-            content,
-            cancellationToken);
-        return CreateGoalAssignmentOperationResult(operation);
-    }
 
-    public async Task<GoalAssignmentOperationResult> RefreshGoalAssignmentResourcesAsync(
+    public Task<GoalAssignmentOperationResult> RefreshGoalAssignmentResourcesAsync(
         string serviceGroup,
         string goalAssignment,
         string? tenant = null,
-        CancellationToken cancellationToken = default)
-    {
-        GoalAssignmentResource assignment = await GetGoalAssignmentResourceAsync(
-            serviceGroup,
-            goalAssignment,
-            tenant,
+        CancellationToken cancellationToken = default) =>
+        ExecuteWithTimeoutAsync(
+            async token =>
+            {
+                GoalAssignmentResource assignment = await GetGoalAssignmentResourceAsync(
+                    serviceGroup,
+                    goalAssignment,
+                    tenant,
+                    token);
+                ArmOperation operation = await assignment.RefreshGoalResourcesAsync(
+                    WaitUntil.Completed,
+                    token);
+                return CreateGoalAssignmentOperationResult(operation);
+            },
+            "goal assignment resource refresh request",
+            GoalAssignmentOperationTimeout,
             cancellationToken);
-        ArmOperation operation = await assignment.RefreshGoalResourcesAsync(
-            WaitUntil.Started,
-            cancellationToken);
-        return CreateGoalAssignmentOperationResult(operation);
-    }
 
     public Task<bool> DeleteGoalAssignmentAsync(
         string serviceGroup,
