@@ -1267,6 +1267,62 @@ public sealed class ResilienceManagementServiceTests
     }
 
     [Fact]
+    public void ValidateRecoveryResourceUpdate_AllowsMatchingNativeProtectionSettings()
+    {
+        (ResourceProtectionSolutionType SolutionType, ResourceBaseProtectionSolutionSetting Setting, string ResourcePath)[] cases =
+        [
+            ("AzureStorageAccount", CreateNativeProtectionSetting("AzureStorageAccount"), "Microsoft.Storage/storageAccounts/account"),
+            ("AzureServiceBus", CreateNativeProtectionSetting("AzureServiceBus"), "Microsoft.ServiceBus/namespaces/namespace"),
+            ("AzureCosmosDB", CreateNativeProtectionSetting("AzureCosmosDB"), "Microsoft.DocumentDB/databaseAccounts/account"),
+            ("AzureNetAppFiles", CreateNativeProtectionSetting("AzureNetAppFiles"), "Microsoft.NetApp/netAppAccounts/account/capacityPools/pool/volumes/volume")
+        ];
+
+        foreach ((ResourceProtectionSolutionType solutionType, ResourceBaseProtectionSolutionSetting setting, string resourcePath) in cases)
+        {
+            RecoveryMembersData requested = CreateRecoveryResource(
+                ResourceInclusionState.Included,
+                solutionType,
+                setting);
+            RecoveryMembersData existing = CreateRecoveryResource(
+                azureResourceId: $"/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/{resourcePath}");
+
+            ResilienceManagementService.ValidateRecoveryResourceUpdate(requested, existing);
+        }
+    }
+
+    [Fact]
+    public void ValidateRecoveryResourceUpdate_RejectsNativeProtectionSettingForWrongResourceType()
+    {
+        RecoveryMembersData requested = CreateRecoveryResource(
+            ResourceInclusionState.Included,
+            "AzureStorageAccount",
+            CreateNativeProtectionSetting("AzureStorageAccount"));
+        RecoveryMembersData existing = CreateRecoveryResource(
+            azureResourceId: "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.ServiceBus/namespaces/namespace");
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(
+            () => ResilienceManagementService.ValidateRecoveryResourceUpdate(requested, existing));
+
+        Assert.Contains("Microsoft.Storage/storageAccounts", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateRecoveryResourceUpdate_RejectsMismatchedNativeProtectionSetting()
+    {
+        RecoveryMembersData requested = CreateRecoveryResource(
+            ResourceInclusionState.Included,
+            "AzureStorageAccount",
+            CreateNativeProtectionSetting("AzureServiceBus"));
+        RecoveryMembersData existing = CreateRecoveryResource(
+            azureResourceId: "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/account");
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(
+            () => ResilienceManagementService.ValidateRecoveryResourceUpdate(requested, existing));
+
+        Assert.Contains("inconsistent selectedProtectionSolutionType", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ValidateRecoveryResourceUpdate_RejectsAzureSiteRecoveryForNonVirtualMachine()
     {
         RecoveryMembersData requested = CreateRecoveryResource(
@@ -1477,6 +1533,20 @@ public sealed class ResilienceManagementServiceTests
         resource.Properties.SelectedProtectionSolutionSetting = solutionSetting;
         return resource;
     }
+
+    private static ResourceBaseProtectionSolutionSetting CreateNativeProtectionSetting(string solutionType)
+        => ModelReaderWriter.Read<RecoveryMembersData>(BinaryData.FromObjectAsJson(new
+        {
+            properties = new
+            {
+                recoveryResourceUniqueId = "12345678-9012-3456-7890-123456789012",
+                selectedProtectionSolutionType = solutionType,
+                selectedProtectionSolutionSetting = new
+                {
+                    protectionSolutionType = solutionType
+                }
+            }
+        }))!.Properties!.SelectedProtectionSolutionSetting!;
 
     private static RecoveryMembersData CreateProtectedSiteRecoveryResource()
         => ModelReaderWriter.Read<RecoveryMembersData>(BinaryData.FromObjectAsJson(new

@@ -1452,6 +1452,35 @@ public sealed class ResilienceManagementService(IAzureService azureService)
             return;
         }
 
+        string? expectedNativeResourceType = effectiveSolutionType.Value.ToString() switch
+        {
+            "AzureStorageAccount" => "Microsoft.Storage/storageAccounts",
+            "AzureServiceBus" => "Microsoft.ServiceBus/namespaces",
+            "AzureCosmosDB" => "Microsoft.DocumentDB/databaseAccounts",
+            "AzureNetAppFiles" => "Microsoft.NetApp/netAppAccounts/capacityPools/volumes",
+            _ => null
+        };
+        if (expectedNativeResourceType is not null)
+        {
+            if (!string.Equals(
+                    GetProtectionSolutionType(effectiveSolutionSetting),
+                    effectiveSolutionType.Value.ToString(),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException($"Recovery resource '{resourceId}' has inconsistent selectedProtectionSolutionType and selectedProtectionSolutionSetting values.");
+            }
+
+            if (!string.Equals(
+                    existing.ResourceId?.ResourceType.ToString(),
+                    expectedNativeResourceType,
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException($"Recovery resource '{resourceId}' can use {effectiveSolutionType} only for a {expectedNativeResourceType} resource.");
+            }
+
+            return;
+        }
+
         if (effectiveSolutionType != ResourceProtectionSolutionType.AzureSiteRecovery || effectiveSolutionSetting is not ResourceSiteRecoveryProtectionSetting siteRecoverySetting)
         {
             throw new ArgumentException($"Recovery resource '{resourceId}' has inconsistent selectedProtectionSolutionType and selectedProtectionSolutionSetting values.");
@@ -1491,6 +1520,15 @@ public sealed class ResilienceManagementService(IAzureService azureService)
 
     private static bool IsNullOrNone(ResourceProtectionSolutionType? solutionType)
         => solutionType is null || solutionType == ResourceProtectionSolutionType.None || string.IsNullOrEmpty(solutionType.Value.ToString());
+
+    private static string? GetProtectionSolutionType(ResourceBaseProtectionSolutionSetting solutionSetting)
+    {
+        using JsonDocument payload = JsonDocument.Parse(ModelReaderWriter.Write(
+            solutionSetting,
+            ModelReaderWriterOptions.Json,
+            AzureResourceManagerResilienceManagementContext.Default).ToMemory());
+        return payload.RootElement.GetProperty("protectionSolutionType").GetString();
+    }
 
     private static void ValidateResourceType(ResourceIdentifier? resourceIdentifier, string expectedResourceType, string recoveryResourceId, string propertyName)
     {
