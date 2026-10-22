@@ -1423,6 +1423,42 @@ public sealed class ResilienceManagementServiceTests
     }
 
     [Fact]
+    public void ValidateRecoveryResourceUpdate_AllowsValidAzureCosmosDBConfiguration()
+    {
+        RecoveryMembersData requested = CreateCosmosRecoveryResource();
+        RecoveryMembersData existing = CreateProtectedCosmosRecoveryResource();
+
+        ResilienceManagementService.ValidateRecoveryResourceUpdate(requested, existing);
+    }
+
+    [Fact]
+    public void ValidateRecoveryResourceUpdate_AzureCosmosDBRequiresMatchingSetting()
+    {
+        RecoveryMembersData requested = CreateCosmosRecoveryResource();
+        requested.Properties!.SelectedProtectionSolutionSetting =
+            new ResourceCustomProtectionSetting();
+        RecoveryMembersData existing = CreateProtectedCosmosRecoveryResource();
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(
+            () => ResilienceManagementService.ValidateRecoveryResourceUpdate(requested, existing));
+
+        Assert.Contains("AzureCosmosDB selectedProtectionSolutionSetting", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateRecoveryResourceUpdate_AzureCosmosDBRequiresDetectedProtection()
+    {
+        RecoveryMembersData requested = CreateCosmosRecoveryResource();
+        RecoveryMembersData existing = CreateRecoveryResource(
+            azureResourceId: "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.DocumentDB/databaseAccounts/account");
+
+        ArgumentException exception = Assert.Throws<ArgumentException>(
+            () => ResilienceManagementService.ValidateRecoveryResourceUpdate(requested, existing));
+
+        Assert.Contains("healthy Azure Cosmos DB protection", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void ValidateRecoveryResourceUpdate_RejectsAzureSiteRecoveryForNonVirtualMachine()
     {
         RecoveryMembersData requested = CreateRecoveryResource(
@@ -1665,6 +1701,41 @@ public sealed class ResilienceManagementServiceTests
                 selectedProtectionSolutionSetting = new
                 {
                     protectionSolutionType = "AzureStorageAccount"
+                }
+            }
+        }))!;
+
+    private static RecoveryMembersData CreateCosmosRecoveryResource()
+        => ModelReaderWriter.Read<RecoveryMembersData>(BinaryData.FromObjectAsJson(new
+        {
+            properties = new
+            {
+                recoveryResourceUniqueId = "12345678-9012-3456-7890-123456789012",
+                inclusionState = "Included",
+                selectedProtectionSolutionType = "AzureCosmosDB",
+                selectedProtectionSolutionSetting = new
+                {
+                    protectionSolutionType = "AzureCosmosDB"
+                }
+            }
+        }))!;
+
+    private static RecoveryMembersData CreateProtectedCosmosRecoveryResource()
+        => ModelReaderWriter.Read<RecoveryMembersData>(BinaryData.FromObjectAsJson(new
+        {
+            properties = new
+            {
+                recoveryResourceUniqueId = "12345678-9012-3456-7890-123456789012",
+                resourceId = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.DocumentDB/databaseAccounts/account",
+                protectionStatus = "Protected",
+                resourceProtectionSolutions = new[]
+                {
+                    new
+                    {
+                        protectionSolutionType = "AzureCosmosDB",
+                        protectionStatus = "Protected",
+                        resourceId = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.DocumentDB/databaseAccounts/account"
+                    }
                 }
             }
         }))!;

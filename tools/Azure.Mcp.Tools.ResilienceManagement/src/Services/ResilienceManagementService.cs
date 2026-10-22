@@ -1512,6 +1512,37 @@ public sealed class ResilienceManagementService(IAzureService azureService)
             return;
         }
 
+        if (string.Equals(
+            effectiveSolutionType.Value.ToString(),
+            "AzureCosmosDB",
+            StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.Equals(
+                GetProtectionSolutionType(effectiveSolutionSetting),
+                "AzureCosmosDB",
+                StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException($"Recovery resource '{resourceId}' requires an AzureCosmosDB selectedProtectionSolutionSetting that matches selectedProtectionSolutionType.");
+            }
+
+            if (!string.Equals(existing.ResourceId?.ResourceType.ToString(), "Microsoft.DocumentDB/databaseAccounts", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException($"Recovery resource '{resourceId}' can use AzureCosmosDB only for a Microsoft.DocumentDB/databaseAccounts resource.");
+            }
+
+            if (!existing.ResourceProtectionSolutions.Any(solution =>
+                string.Equals(
+                    solution.ProtectionSolutionType.ToString(),
+                    "AzureCosmosDB",
+                    StringComparison.OrdinalIgnoreCase) &&
+                solution.ProtectionStatus == ResourceProtectionStatus.Protected))
+            {
+                throw new ArgumentException($"Recovery resource '{resourceId}' cannot use AzureCosmosDB because healthy Azure Cosmos DB protection was not detected.");
+            }
+
+            return;
+        }
+
         if (effectiveSolutionType != ResourceProtectionSolutionType.AzureSiteRecovery || effectiveSolutionSetting is not ResourceSiteRecoveryProtectionSetting siteRecoverySetting)
         {
             throw new ArgumentException($"Recovery resource '{resourceId}' has inconsistent selectedProtectionSolutionType and selectedProtectionSolutionSetting values.");
