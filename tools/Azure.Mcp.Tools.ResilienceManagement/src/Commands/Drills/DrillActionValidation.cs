@@ -11,38 +11,93 @@ internal static class DrillActionValidation
 {
     private static readonly ResourceType ServiceGroupResourceType = new("Microsoft.Management/serviceGroups");
 
-    public static void ValidateSelectedResourceIds(IReadOnlyList<string>? resourceIds, string serviceGroup, ValidationResult validationResult, string? drill = null)
+    public static void ValidateSelectedResourceIds(
+        IReadOnlyList<string>? resourceIds,
+        string serviceGroup,
+        ValidationResult validationResult,
+        string drill,
+        DrillSelectedResourceKind? expectedKind = null)
     {
-        if (resourceIds is not null && (resourceIds.Count == 0 ||
-            resourceIds.Any(id => string.IsNullOrWhiteSpace(id) || !IsSelectedResourceId(id, serviceGroup, drill))))
+        if (resourceIds is null)
         {
-            var expectedResource = drill is null
-                ? "recovery-resource ID under the requested service group"
-                : "drill-resource ID under the requested service group and drill";
-            validationResult.Errors.Add($"Selected resource IDs must contain at least one full {expectedResource} with a GUID resource name.");
+            return;
+        }
+
+        if (resourceIds.Count == 0)
+        {
+            validationResult.Errors.Add("Selected resource IDs must not be empty when supplied.");
+            return;
+        }
+
+        DrillSelectedResourceKind? actualKind = null;
+        foreach (string resourceId in resourceIds)
+        {
+            DrillSelectedResourceKind? candidate =
+                GetSelectedResourceKind(resourceId, serviceGroup, drill);
+            if (candidate is null)
+            {
+                validationResult.Errors.Add(
+                    "Each selected resource ID must be a full drill-resource ID under the requested drill " +
+                    "or a qualified RO recovery-resource ID under a recovery plan in the requested service group, " +
+                    "with a GUID resource name.");
+                return;
+            }
+
+            if (actualKind is not null && actualKind != candidate)
+            {
+                validationResult.Errors.Add(
+                    "Selected resource IDs cannot mix drill resources and RO recovery resources.");
+                return;
+            }
+
+            actualKind = candidate;
+        }
+
+        if (expectedKind is not null && actualKind != expectedKind)
+        {
+            string expected = expectedKind == DrillSelectedResourceKind.DrillResource
+                ? "drill-resource IDs for forward fault injection or failover"
+                : "qualified RO recovery-resource IDs for reverse operations";
+            validationResult.Errors.Add($"Selected resource IDs must use {expected}.");
         }
     }
 
     public static bool IsDrillResourceId(string resourceId, string serviceGroup, string drill)
-        => !string.IsNullOrWhiteSpace(resourceId) && IsSelectedResourceId(resourceId, serviceGroup, drill);
+        => GetSelectedResourceKind(resourceId, serviceGroup, drill) ==
+            DrillSelectedResourceKind.DrillResource;
 
-    private static bool IsSelectedResourceId(string resourceId, string serviceGroup, string? drill)
+    internal static DrillSelectedResourceKind? GetSelectedResourceKind(
+        string resourceId,
+        string serviceGroup,
+        string drill)
     {
         try
         {
             var parsed = new ResourceIdentifier(resourceId);
             ResourceIdentifier? parentId = parsed.Parent;
             ResourceIdentifier? serviceGroupId = parentId?.Parent;
-            return parsed.ResourceType == (drill is null ? RecoveryMembersResource.ResourceType : DrillTargetResource.ResourceType) &&
-                parentId?.ResourceType == (drill is null ? RecoveryPlanResource.ResourceType : ResilienceManagementDrillResource.ResourceType) &&
-                (drill is null || string.Equals(parentId.Name, drill, StringComparison.OrdinalIgnoreCase)) &&
-                serviceGroupId?.ResourceType == ServiceGroupResourceType &&
-                string.Equals(serviceGroupId.Name, serviceGroup, StringComparison.OrdinalIgnoreCase) &&
-                Guid.TryParse(parsed.Name, out _);
+            if (serviceGroupId?.ResourceType != ServiceGroupResourceType ||
+                !string.Equals(serviceGroupId.Name, serviceGroup, StringComparison.OrdinalIgnoreCase) ||
+                !Guid.TryParse(parsed.Name, out _))
+            {
+                return null;
+            }
+
+            if (parsed.ResourceType == DrillTargetResource.ResourceType &&
+                parentId?.ResourceType == ResilienceManagementDrillResource.ResourceType &&
+                string.Equals(parentId.Name, drill, StringComparison.OrdinalIgnoreCase))
+            {
+                return DrillSelectedResourceKind.DrillResource;
+            }
+
+            return parsed.ResourceType == RecoveryMembersResource.ResourceType &&
+                parentId?.ResourceType == RecoveryPlanResource.ResourceType
+                    ? DrillSelectedResourceKind.RecoveryResource
+                    : null;
         }
         catch (Exception ex) when (ex is ArgumentException or FormatException)
         {
-            return false;
+            return null;
         }
     }
 
@@ -98,4 +153,10 @@ internal static class DrillActionValidation
 
     private static bool IsValidServiceGroupNameCharacter(char character) =>
         IsValidDrillNameCharacter(character) || character is '(' or ')';
+}
+
+internal enum DrillSelectedResourceKind
+{
+    DrillResource,
+    RecoveryResource
 }

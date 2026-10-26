@@ -15,7 +15,7 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Recovery.Plans;
     Id = "4de82b03-68f7-45b2-8a57-925411cc89d6",
     Name = "reprotect",
     Title = "Reprotect Resilience Recoveryplan",
-    Description = "Starts reprotection after failover for all qualified resources in a recoveryplan or for explicitly selected recovery-resource IDs. This destructive operation returns after reprotection is accepted, with an operation ID and a recovery job ID when available. Use recoveryjob get to monitor progress. Use validateforreprotect first when qualification is unknown.",
+    Description = "Starts reprotection after failover for all qualified resources in a recoveryplan or for explicitly selected recovery-resource IDs. This destructive operation follows the exact returned recovery job to a terminal state and returns its operation ID, job ID, and final status. Use validateforreprotect first when qualification is unknown.",
     OperationPlane = ToolOperationPlane.Control,
     Destructive = true,
     Idempotent = false,

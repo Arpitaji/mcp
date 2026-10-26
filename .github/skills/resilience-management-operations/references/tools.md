@@ -50,14 +50,14 @@ Update GETs the assignment and calls
 SDK `UpdateAsync`, preserving its zonal requirement; GA PATCH cannot change that
 flag. Clear removes associations, not SLI resources. Never invent SLI fixture IDs.
 
-Goals target API `2026-10-01`. See [development](./development.md#goals-canary-recording)
+Goals target API `2026-10-31-preview`. See [development](./development.md#goals-canary-recording)
 for canary recording; production tools retain their normal ARM endpoint.
 
-With API `2026-10-01`, assignment details include `requireZonalResiliency`, `serviceLevelResources`, and `errorDetails`, and member details include `resourceArmId` and `zonalResiliency`. Preview-only HA/DR goal fields are not returned. Do not infer HA/DR participation or attestation from zonal resiliency.
+With API `2026-10-31-preview`, assignment details include `requireZonalResiliency`, `serviceLevelResources`, and `errorDetails`, and member details include `resourceArmId` and `zonalResiliency`. Preview-only HA/DR goal fields are not returned. Do not infer HA/DR participation or attestation from zonal resiliency.
 
 ## Drills
 
-Drills tools use `Azure.ResourceManager.ResilienceManagement` 1.0.0 and API `2026-10-01`. Get responses preserve returned GA fields; list responses remain ID/name summaries.
+Drills tools use `Azure.ResourceManager.ResilienceManagement` 1.0.0 with a transport policy that pins API `2026-10-31-preview` for parent, child, action, and polling requests. Get responses preserve returned GA fields; list responses remain ID/name summaries.
 
 | Tool | Purpose | Parameters |
 |---|---|---|
@@ -73,17 +73,20 @@ Drills tools use `Azure.ResourceManager.ResilienceManagement` 1.0.0 and API `202
 | `mcp_azure_mcp_ser_resiliency_drill_resource_add-or-update` | Include, update, or exclude drill resources and fault settings | **`service-group`**, **`drill`**, **`fault-duration-minutes`**, `include-resources?`, `update-resources?`, `exclude-resources?`, `force-inclusion-and-update?` (`Enable` or `Disable`), `tenant?`. Supply at least one payload; include, update, and exclude IDs must identify drill resources under the requested drill, not underlying VMs. |
 | `mcp_azure_mcp_ser_resiliency_drill_run_get` | List drill runs or get one | **`service-group`**, **`drill`**, `name?`, `tenant?` |
 | `mcp_azure_mcp_ser_resiliency_drill_run_add-notes` | Add notes to an existing drill run | **`service-group`**, **`drill`**, **`drill-run`**, **`notes`**, `tenant?` |
-| `mcp_azure_mcp_ser_resiliency_drill_run_failover` | Start failover for qualified drill-run resources | **`service-group`**, **`drill`**, **`drill-run`**, **`source-locations`**, `selected-resource-ids?` (full drill-resource IDs under this service group and drill), `auto-failover?` (default `false`), `user-consent?` (`Unspecified` or `Allowed`; `Allowed` lets failover proceed when the recovery plan is not `Ready`), `tenant?`. |
+| `mcp_azure_mcp_ser_resiliency_drill_run_failover` | Start failover for qualified drill-run resources | **`service-group`**, **`drill`**, **`drill-run`**, **`source-locations`**, `selected-resource-ids?` (forward stages require full Drill Resource IDs under this drill; reverse stages require qualified RO Recovery Resource IDs under a Recovery Plan in this service group), `auto-failover?` (default `false`), `user-consent?` (`Unspecified` or `Allowed`; `Allowed` lets failover proceed when the recovery plan is not `Ready`), `tenant?`. |
 | `mcp_azure_mcp_ser_resiliency_drill_run_resume` | Resume the drill run when its current stage permits it | **`service-group`**, **`drill`**, **`drill-run`**, `tenant?` |
 | `mcp_azure_mcp_ser_resiliency_drill_run_mark-complete` | Mark a drill-run stage complete and disable further retries | **`service-group`**, **`drill`**, **`drill-run`**, **`stage`** (`FaultInjection`, `Failover`, `Reprotect`, `FailoverReverse`, or `ReprotectReverse`), `tenant?` |
-| `mcp_azure_mcp_ser_resiliency_drill_run_reprotect` | Start reprotection after failover when the run permits it | **`service-group`**, **`drill`**, **`drill-run`**, `selected-resource-ids?`, `tenant?`. Omit selected IDs to process all qualified resources. |
+| `mcp_azure_mcp_ser_resiliency_drill_run_reprotect` | Start reprotection after failover when the run permits it | **`service-group`**, **`drill`**, **`drill-run`**, `selected-resource-ids?` (qualified RO Recovery Resource IDs in the same service group), `tenant?`. Omit selected IDs to process all qualified resources. |
 | `mcp_azure_mcp_ser_resiliency_drill_run_generate-report` | Generate or regenerate the drill-run report; returns the operation ID, `hasCompleted`, and the report summary when available | **`service-group`**, **`drill`**, **`drill-run`**, `tenant?`. Check progress with `drill_run_get` (`properties.report`). |
 | `mcp_azure_mcp_ser_resiliency_drill_run_get-report-download-url` | Get a short-lived, read-only download URL for the generated report. The URL is a secret; do not log or share it. | **`service-group`**, **`drill`**, **`drill-run`**, `format?` (`Html`, the default), `tenant?`. Generate the report first. |
 | `mcp_azure_mcp_ser_resiliency_drill_run_resource_get` | List run targets or get one | **`service-group`**, **`drill`**, **`drill-run`**, `name?`, `tenant?` |
 
-The configuration options accept JSON strings; see [payloads](./payloads.md#drill-ga-configuration). On create, each supplied configuration requires identity, and monitoring requires its selection. Update accepts partial objects and preserves omitted fields. Pass the string `"null"` as the Health Model or SLI option value to clear that configuration. A supplied SLI array replaces the selection; empty arrays are invalid. `goalAssignmentId` is read-only. The identity options use `{"type":"...","userAssignedIdentity":"<ARM ID>"}` for each associated identity (`chaos-resource-properties` requires both `identity` and `chaosResourceIdentityForFaults` on create), and `identity` uses `{"type":"...","userAssignedIdentities":["<ARM ID>"]}`.
+The configuration options accept JSON strings; see [payloads](./payloads.md#drill-ga-configuration). On create, each supplied configuration requires identity, and monitoring requires its selection. Update accepts partial objects and preserves omitted fields. Pass the string `"null"` as the Health Model or SLI option value to clear that configuration. A supplied SLI array replaces the selection; empty arrays are invalid. The update is serialized once into the submitted PATCH, then the exact Health Model ID or SLI selection is verified from an authoritative Drill GET. A source-changing response mismatch fails rather than being reported as success. `goalAssignmentId` is read-only. The identity options use `{"type":"...","userAssignedIdentity":"<ARM ID>"}` for each associated identity (`chaos-resource-properties` requires both `identity` and `chaosResourceIdentityForFaults` on create), and `identity` uses `{"type":"...","userAssignedIdentities":["<ARM ID>"]}`.
 
 ## Recovery Plans
+
+Recovery Plan, Recovery Resource, Recovery Job, action, and polling requests use API
+`2026-10-31-preview`; the tool does not use the generated SDK's `2026-10-01` default.
 
 | Tool | Purpose | Parameters |
 |---|---|---|
@@ -94,8 +97,8 @@ The configuration options accept JSON strings; see [payloads](./payloads.md#dril
 | `mcp_azure_mcp_ser_resiliency_recoveryplan_validateforoperation` | Run operation-level plan state/readiness/permission validation; distinct from per-resource failover qualification | **`service-group`**, **`recoveryplan`**, **`operation-name`**, `tenant?` |
 | `mcp_azure_mcp_ser_resiliency_recoveryplan_validateforfailover` | Validate failover qualification | **`service-group`**, **`recoveryplan`**, `source-locations?`, `selected-resource-ids?`, `user-consent?`, `tenant?`. Require at least one selector. |
 | `mcp_azure_mcp_ser_resiliency_recoveryplan_validateforreprotect` | Validate Azure Resilience Management recoveryplan reprotect qualification, not Azure Backup | **`service-group`**, **`recoveryplan`**, `selected-resource-ids?`, `tenant?` |
-| `mcp_azure_mcp_ser_resiliency_recoveryplan_failover` | Start failover | **`service-group`**, **`recoveryplan`**, `source-locations?`, `selected-resource-ids?`, `user-consent?`, `tenant?`. Require at least one selector. |
-| `mcp_azure_mcp_ser_resiliency_recoveryplan_reprotect` | Start reprotection after failover | **`service-group`**, **`recoveryplan`**, `selected-resource-ids?`, `tenant?` |
+| `mcp_azure_mcp_ser_resiliency_recoveryplan_failover` | Run failover and follow its exact recovery job to terminal closure | **`service-group`**, **`recoveryplan`**, `source-locations?`, `selected-resource-ids?`, `user-consent?`, `tenant?`. Require at least one selector. Returns operation ID, exact job ID, and terminal job status. |
+| `mcp_azure_mcp_ser_resiliency_recoveryplan_reprotect` | Run reprotection and follow its exact recovery job to terminal closure | **`service-group`**, **`recoveryplan`**, `selected-resource-ids?`, `tenant?`. Returns operation ID, exact job ID, and terminal job status. |
 | `mcp_azure_mcp_ser_resiliency_recoveryplan_finalize` | Validate permissions and finalize current plan operation state | **`service-group`**, **`recoveryplan`**, `tenant?`. This does not commit a completed failover. |
 
 ### Recovery plan identity values

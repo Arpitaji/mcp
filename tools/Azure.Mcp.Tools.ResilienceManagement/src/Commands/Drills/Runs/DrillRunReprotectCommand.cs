@@ -34,7 +34,12 @@ public sealed class DrillRunReprotectCommand(ILogger<DrillRunReprotectCommand> l
         ValidatePathSegment(options.ServiceGroup, "service group", validationResult);
         ValidatePathSegment(options.Drill, "drill", validationResult);
         ValidatePathSegment(options.DrillRun, "drill run", validationResult);
-        DrillActionValidation.ValidateSelectedResourceIds(options.SelectedResourceIds, options.ServiceGroup, validationResult);
+        DrillActionValidation.ValidateSelectedResourceIds(
+            options.SelectedResourceIds,
+            options.ServiceGroup,
+            validationResult,
+            options.Drill,
+            DrillSelectedResourceKind.RecoveryResource);
     }
 
     public override async Task<CommandResponse> ExecuteAsync(CommandContext context, DrillRunReprotectOptions options, CancellationToken cancellationToken)

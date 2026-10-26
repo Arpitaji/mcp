@@ -54,6 +54,76 @@ public sealed class DrillConfigurationTests
     }
 
     [Fact]
+    public void ValidateMonitoringReadBack_AcceptsExactHealthModelSource()
+    {
+        const string id = "/subscriptions/11111111-1111-1111-1111-111111111111/resourceGroups/rg/providers/Microsoft.CloudHealth/healthmodels/health";
+        var requested = DrillConfiguration.Update(
+            null,
+            "{\"healthModelId\":\"" + id + "\"}",
+            null);
+        using JsonDocument response = JsonDocument.Parse(
+            "{\"properties\":{\"healthModelMonitoringProperties\":{\"identity\":{\"type\":\"SystemAssigned\"},\"healthModelId\":\"" +
+            id + "\"}}}");
+
+        DrillConfiguration.ValidateMonitoringReadBack(
+            requested,
+            response.RootElement);
+    }
+
+    [Fact]
+    public void ValidateMonitoringReadBack_RejectsChangedSliSource()
+    {
+        const string requestedId = "/providers/Microsoft.Management/serviceGroups/fixture/providers/Microsoft.Monitor/slis/availability";
+        const string differentId = "/providers/Microsoft.Management/serviceGroups/fixture/providers/Microsoft.Monitor/slis/latency";
+        var requested = DrillConfiguration.Update(
+            null,
+            null,
+            "{\"slis\":[{\"sliId\":\"" + requestedId +
+            "\",\"type\":\"Availability\"}]}");
+        using JsonDocument response = JsonDocument.Parse(
+            "{\"properties\":{\"sliMonitoringProperties\":{\"identity\":{\"type\":\"SystemAssigned\"},\"slis\":[{\"sliId\":\"" +
+            differentId + "\",\"type\":\"Availability\"}]}}}");
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
+            () => DrillConfiguration.ValidateMonitoringReadBack(
+                requested,
+                response.RootElement));
+
+        Assert.Contains("did not match", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ValidateMonitoringReadBack_AcceptsOmittedClearedSource()
+    {
+        var requested = DrillConfiguration.Update(
+            null,
+            "null",
+            null);
+        using JsonDocument response = JsonDocument.Parse("""{"properties":{}}""");
+
+        DrillConfiguration.ValidateMonitoringReadBack(
+            requested,
+            response.RootElement);
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"properties":{"healthModelMonitoringProperties":{"healthModelId":"still-present"}}}""")]
+    public void ValidateMonitoringReadBack_RejectsUnprovenClear(string responseJson)
+    {
+        var requested = DrillConfiguration.Update(
+            null,
+            "null",
+            null);
+        using JsonDocument response = JsonDocument.Parse(responseJson);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            DrillConfiguration.ValidateMonitoringReadBack(
+                requested,
+                response.RootElement));
+    }
+
+    [Fact]
     public void Create_AcceptsServiceGroupScopedSli()
     {
         const string id = "/providers/Microsoft.Management/serviceGroups/fixture/providers/Microsoft.Monitor/slis/availability";

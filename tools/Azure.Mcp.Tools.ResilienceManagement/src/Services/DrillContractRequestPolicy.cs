@@ -15,10 +15,8 @@ internal sealed class DrillContractRequestPolicy(BinaryData? content = null)
     {
         string path = message.Request.Uri.ToUri().AbsolutePath;
         if (!path.Contains(
-                "/providers/Microsoft.AzureResilienceManagement/drills/",
-                StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("/drillResources", StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("/drillRuns", StringComparison.OrdinalIgnoreCase))
+                "/providers/Microsoft.AzureResilienceManagement/drills",
+                StringComparison.OrdinalIgnoreCase))
         {
             return;
         }

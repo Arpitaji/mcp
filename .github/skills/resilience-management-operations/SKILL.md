@@ -32,6 +32,8 @@ For operational Azure Resilience Management requests, use the Azure Resilience M
 11. For Recovery Orchestration (RO) recovery plan updates only, do not use or imply HTTP `PATCH`; the current SDK does not support RO recovery plan PATCH. Get the existing plan and preserve unchanged values in the create-or-update request.
 12. For operational Azure Resilience Management requests, if no registered Resilience Management MCP tool supports the requested operation, explain that the operation is unavailable through the current toolset and ask the user for explicit permission to use `az`, REST, or another execution surface. Use a fallback only after the user approves it.
 13. Distinguish parent usage-plan deletion from enrollment deletion by the requested outcome. “Delete/remove the usage plan” means delete the entire plan even when the request mentions its service group; never reinterpret it as deleting only an enrollment. “Unenroll/remove the service group association but keep the plan” means delete the enrollment only.
+14. Goal Assignment, Drill, Recovery Plan, Recovery Resource, and Recovery Job parent, child, action, and polling requests use the versioned `2026-10-31-preview` contract. Do not substitute the older HA/DR tuple, `2026-10-01`, or the generated SDK default.
+15. Recovery-plan failover and reprotect follow the exact returned recovery job to a terminal status. Report that final status; never summarize an earlier accepted response as successful completion.
 
 ## Route the Request
 
@@ -85,7 +87,7 @@ and [nested GA resource payload](./references/payloads.md#goal-resource-updates-
 2. Run the mandatory pre-validation in the matching workflow recipe.
 3. Stop if no resources qualify, readiness fails, or the state does not support the operation.
 4. Execute only after required selectors and choices are provided.
-5. Report the status returned by the command. If it returns `Accepted`, include operation/job IDs and inspect subsequent status only through get tools; otherwise, report the completed result.
+5. Report the status returned by the command. Recovery-plan failover and reprotect already poll their exact returned job to terminal closure. If another command returns `Accepted`, include operation/job IDs and inspect subsequent status only through get tools; otherwise, report the completed result.
 
 ### Monitor asynchronous operations
 

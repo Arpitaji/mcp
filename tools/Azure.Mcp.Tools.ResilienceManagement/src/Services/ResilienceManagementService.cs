@@ -5,6 +5,7 @@ using System.ClientModel.Primitives;
 using System.Text.Json;
 using Azure.Core;
 using Azure.Mcp.Core.Services.Azure;
+using Azure.Mcp.Tools.ResilienceManagement.Commands.Drills;
 using Azure.Mcp.Tools.ResilienceManagement.Models;
 using Azure.ResourceManager;
 using Azure.ResourceManager.Models;
@@ -22,12 +23,63 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
     private static readonly TimeSpan UsagePlanOperationTimeout = TimeSpan.FromMinutes(10);
     private static readonly TimeSpan DrillReportOperationTimeout = TimeSpan.FromMinutes(5);
 
+    internal static ArmClientOptions CreateNonIdempotentArmClientOptions()
+    {
+        ArmClientOptions options = ResilienceManagementRoutingPolicy.CreateArmClientOptions();
+        options.Retry.MaxRetries = 0;
+        return options;
+    }
+
     // The Drills backend reads the per-operation id from the operationId query parameter, but the generated SDK only
     // emits the operation-id header. Install a policy that mirrors the header into the query for long-running operations.
     private static ArmClientOptions CreateArmClientOptionsWithOperationIdPolicy()
     {
-        var options = new ArmClientOptions();
+        ArmClientOptions options = CreateNonIdempotentArmClientOptions();
         options.AddPolicy(new OperationIdQueryParameterPolicy(), HttpPipelinePosition.PerCall);
+        options.AddPolicy(new DrillContractRequestPolicy(), HttpPipelinePosition.PerCall);
+        return options;
+    }
+
+    internal static ArmClientOptions CreateDrillContractArmClientOptions(
+        BinaryData? content = null,
+        bool disableRetries = false)
+    {
+        ArmClientOptions options = ResilienceManagementRoutingPolicy.CreateArmClientOptions();
+        options.AddPolicy(new DrillContractRequestPolicy(content), HttpPipelinePosition.PerCall);
+        if (disableRetries)
+        {
+            options.Retry.MaxRetries = 0;
+        }
+
+        return options;
+    }
+
+    internal static ArmClientOptions CreateRecoveryContractArmClientOptions(
+        bool disableRetries = false)
+    {
+        ArmClientOptions options = ResilienceManagementRoutingPolicy.CreateArmClientOptions();
+        options.AddPolicy(new RecoveryContractRequestPolicy(), HttpPipelinePosition.PerCall);
+        if (disableRetries)
+        {
+            options.Retry.MaxRetries = 0;
+        }
+
+        return options;
+    }
+
+    private Task<ArmClient> CreateRecoveryArmClientAsync(
+        string? tenant,
+        CancellationToken cancellationToken,
+        bool disableRetries = false) =>
+        CreateArmClientAsync(
+            tenantIdOrName: tenant,
+            armClientOptions: CreateRecoveryContractArmClientOptions(disableRetries),
+            cancellationToken: cancellationToken);
+
+    private static ArmClientOptions CreateDrillRunReprotectClientOptions(BinaryData content)
+    {
+        ArmClientOptions options = CreateArmClientOptionsWithOperationIdPolicy();
+        options.AddPolicy(new DrillRunReprotectContractRequestPolicy(content), HttpPipelinePosition.PerCall);
         return options;
     }
 
@@ -322,7 +374,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<IEnumerable<ResourceSummary>> ListRecoveryPlansAsync(string serviceGroup, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var serviceGroupId = new ResourceIdentifier($"/providers/Microsoft.Management/serviceGroups/{serviceGroup}");
         RecoveryPlanCollection recoveryPlans = armClient.GetRecoveryPlans(serviceGroupId);
@@ -340,7 +392,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<JsonElement> GetRecoveryPlanAsync(string serviceGroup, string recoveryPlan, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryPlanId = RecoveryPlanResource.CreateResourceIdentifier(serviceGroup, recoveryPlan);
         Response<RecoveryPlanResource> response = await armClient.GetRecoveryPlanResource(recoveryPlanId).GetAsync(cancellationToken);
@@ -351,7 +403,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<RecoveryPlanInfo> CreateRecoveryPlanAsync(string serviceGroup, string recoveryPlan, RecoveryPlanKind planType, string? planDescription, RecoveryPlanIdentityKind identityType, string? userAssignedIdentity = null, string? defaultGroupDescription = null, string? tenant = null, IReadOnlyList<RecoveryPlanGroupInput>? additionalGroups = null, IReadOnlyList<RecoveryPlanGroupActionInput>? defaultGroupPreActions = null, IReadOnlyList<RecoveryPlanGroupActionInput>? defaultGroupPostActions = null, string? defaultGroupUniqueId = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var serviceGroupId = new ResourceIdentifier($"/providers/Microsoft.Management/serviceGroups/{serviceGroup}");
         RecoveryPlanCollection recoveryPlans = armClient.GetRecoveryPlans(serviceGroupId);
@@ -423,7 +475,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<bool> DeleteRecoveryPlanAsync(string serviceGroup, string recoveryPlan, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var serviceGroupId = new ResourceIdentifier($"/providers/Microsoft.Management/serviceGroups/{serviceGroup}");
         RecoveryPlanCollection recoveryPlans = armClient.GetRecoveryPlans(serviceGroupId);
@@ -447,7 +499,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<RecoveryPlanUpdateResourcesResult> UpdateRecoveryPlanResourcesAsync(string serviceGroup, string recoveryPlan, UpdateRecoveryResourcesContent content, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryPlanId = RecoveryPlanResource.CreateResourceIdentifier(serviceGroup, recoveryPlan);
         RecoveryPlanResource recoveryPlanResource = await armClient.GetRecoveryPlanResource(recoveryPlanId).GetAsync(cancellationToken);
@@ -481,7 +533,10 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     private async Task<RecoveryPlanFailoverResult> FailoverRecoveryPlanCoreAsync(string serviceGroup, string recoveryPlan, IReadOnlyList<string> sourceLocations, IReadOnlyList<string>? selectedResourceIds, string? userConsent, string? tenant, CancellationToken cancellationToken)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(
+            tenant,
+            cancellationToken,
+            disableRetries: true);
 
         var recoveryPlanId = RecoveryPlanResource.CreateResourceIdentifier(serviceGroup, recoveryPlan);
         RecoveryPlanResource recoveryPlanResource = await armClient.GetRecoveryPlanResource(recoveryPlanId).GetAsync(cancellationToken);
@@ -492,13 +547,26 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
             operationId,
             content,
             cancellationToken);
-        string? jobId = operation.HasCompleted ? operation.Value.JobId : null;
+        await WaitForRecoveryPlanLroCompletionAsync(
+            operation,
+            RecoveryPlanOperationTimeout,
+            cancellationToken);
+        RecoveryJobResource recoveryJob = await WaitForRecoveryPlanActionJobCompletionAsync(
+            armClient,
+            serviceGroup,
+            recoveryPlan,
+            operation.Value.JobId,
+            "failover",
+            cancellationToken);
+        string status = GetRequiredProperties(
+            recoveryJob.Data.Properties,
+            "recovery job").Status?.ToString() ?? string.Empty;
 
         return new RecoveryPlanFailoverResult(
             operationId,
-            jobId,
-            "Accepted",
-            CreateRecoveryPlanActionTrackingMessage("Failover", jobId));
+            recoveryJob.Id.Name,
+            status,
+            $"Failover recovery job '{recoveryJob.Id.Name}' reached terminal state '{status}'.");
     }
 
     public Task<RecoveryPlanFinalizeResult> FinalizeRecoveryPlanAsync(string serviceGroup, string recoveryPlan, string? tenant = null, CancellationToken cancellationToken = default)
@@ -512,7 +580,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     private async Task<RecoveryPlanFinalizeResult> FinalizeRecoveryPlanCoreAsync(string serviceGroup, string recoveryPlan, string? tenant, CancellationToken cancellationToken)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryPlanId = RecoveryPlanResource.CreateResourceIdentifier(serviceGroup, recoveryPlan);
         RecoveryPlanResource recoveryPlanResource = await armClient.GetRecoveryPlanResource(recoveryPlanId).GetAsync(cancellationToken);
@@ -552,7 +620,10 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     private async Task<RecoveryPlanReprotectResult> ReprotectRecoveryPlanCoreAsync(string serviceGroup, string recoveryPlan, IReadOnlyList<string>? selectedResourceIds, string? tenant, CancellationToken cancellationToken)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(
+            tenant,
+            cancellationToken,
+            disableRetries: true);
 
         var recoveryPlanId = RecoveryPlanResource.CreateResourceIdentifier(serviceGroup, recoveryPlan);
         RecoveryPlanResource recoveryPlanResource = await armClient.GetRecoveryPlanResource(recoveryPlanId).GetAsync(cancellationToken);
@@ -563,13 +634,26 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
             operationId,
             content,
             cancellationToken);
-        string? jobId = operation.HasCompleted ? operation.Value.JobId : null;
+        await WaitForRecoveryPlanLroCompletionAsync(
+            operation,
+            RecoveryPlanOperationTimeout,
+            cancellationToken);
+        RecoveryJobResource recoveryJob = await WaitForRecoveryPlanActionJobCompletionAsync(
+            armClient,
+            serviceGroup,
+            recoveryPlan,
+            operation.Value.JobId,
+            "reprotect",
+            cancellationToken);
+        string status = GetRequiredProperties(
+            recoveryJob.Data.Properties,
+            "recovery job").Status?.ToString() ?? string.Empty;
 
         return new RecoveryPlanReprotectResult(
             operationId,
-            jobId,
-            "Accepted",
-            CreateRecoveryPlanActionTrackingMessage("Reprotect", jobId));
+            recoveryJob.Id.Name,
+            status,
+            $"Reprotect recovery job '{recoveryJob.Id.Name}' reached terminal state '{status}'.");
     }
 
     public Task<RecoveryPlanValidateForFailoverResult> ValidateRecoveryPlanForFailoverAsync(string serviceGroup, string recoveryPlan, IReadOnlyList<string> sourceLocations, IReadOnlyList<string>? selectedResourceIds = null, string? userConsent = null, string? tenant = null, CancellationToken cancellationToken = default)
@@ -583,7 +667,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     private async Task<RecoveryPlanValidateForFailoverResult> ValidateRecoveryPlanForFailoverCoreAsync(string serviceGroup, string recoveryPlan, IReadOnlyList<string> sourceLocations, IReadOnlyList<string>? selectedResourceIds, string? userConsent, string? tenant, CancellationToken cancellationToken)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryPlanId = RecoveryPlanResource.CreateResourceIdentifier(serviceGroup, recoveryPlan);
         RecoveryPlanResource recoveryPlanResource = await armClient.GetRecoveryPlanResource(recoveryPlanId).GetAsync(cancellationToken);
@@ -756,7 +840,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     private async Task<RecoveryPlanValidateForReprotectResult> ValidateRecoveryPlanForReprotectCoreAsync(string serviceGroup, string recoveryPlan, IReadOnlyList<string>? selectedResourceIds, string? tenant, CancellationToken cancellationToken)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryPlanId = RecoveryPlanResource.CreateResourceIdentifier(serviceGroup, recoveryPlan);
         RecoveryPlanResource recoveryPlanResource = await armClient.GetRecoveryPlanResource(recoveryPlanId).GetAsync(cancellationToken);
@@ -801,7 +885,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     private async Task<RecoveryPlanValidateForOperationResult> ValidateRecoveryPlanForOperationCoreAsync(string serviceGroup, string recoveryPlan, RecoveryOperationName operationName, string? tenant, CancellationToken cancellationToken)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryPlanId = RecoveryPlanResource.CreateResourceIdentifier(serviceGroup, recoveryPlan);
         RecoveryPlanResource recoveryPlanResource = await armClient.GetRecoveryPlanResource(recoveryPlanId).GetAsync(cancellationToken);
@@ -880,7 +964,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     private async Task<RecoveryPlanReadinessResult> CheckRecoveryPlanReadinessCoreAsync(string serviceGroup, string recoveryPlan, string? tenant, CancellationToken cancellationToken)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryPlanId = RecoveryPlanResource.CreateResourceIdentifier(serviceGroup, recoveryPlan);
         RecoveryPlanResource recoveryPlanResource = await armClient.GetRecoveryPlanResource(recoveryPlanId).GetAsync(cancellationToken);
@@ -1001,7 +1085,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
     internal static ResourceIdentifier GetRecoveryJobResourceId(BinaryData responseContent, string serviceGroup, string recoveryPlan)
     {
         return TryGetRecoveryJobResourceId(responseContent, serviceGroup, recoveryPlan)
-            ?? throw new InvalidOperationException("The readiness operation completed without returning a recovery job identifier.");
+            ?? throw new InvalidOperationException("The operation completed without returning a recovery job identifier.");
     }
 
     internal static ResourceIdentifier? TryGetRecoveryJobResourceId(BinaryData responseContent, string serviceGroup, string recoveryPlan)
@@ -1017,22 +1101,58 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
                 return null;
             }
 
-            ResourceIdentifier recoveryJobResourceId = result.JobId.StartsWith("/", StringComparison.Ordinal)
-                ? new ResourceIdentifier(result.JobId)
-                : RecoveryJobResource.CreateResourceIdentifier(serviceGroup, recoveryPlan, result.JobId);
-            var expectedJobId = RecoveryJobResource.CreateResourceIdentifier(serviceGroup, recoveryPlan, recoveryJobResourceId.Name);
+            return GetRecoveryJobResourceId(result.JobId, serviceGroup, recoveryPlan);
+        }
+        catch (Exception ex) when (ex is JsonException or FormatException or ArgumentException)
+        {
+            throw new InvalidOperationException("The operation returned an invalid recovery job identifier.", ex);
+        }
+    }
+
+    internal static ResourceIdentifier GetRecoveryJobResourceId(
+        string? jobId,
+        string serviceGroup,
+        string recoveryPlan)
+    {
+        if (string.IsNullOrWhiteSpace(jobId))
+        {
+            throw new InvalidOperationException(
+                "The operation completed without returning a recovery job identifier.");
+        }
+
+        try
+        {
+            ResourceIdentifier recoveryJobResourceId =
+                jobId.StartsWith("/", StringComparison.Ordinal)
+                    ? new ResourceIdentifier(jobId)
+                    : RecoveryJobResource.CreateResourceIdentifier(
+                        serviceGroup,
+                        recoveryPlan,
+                        jobId);
+            ResourceIdentifier expectedJobId =
+                RecoveryJobResource.CreateResourceIdentifier(
+                    serviceGroup,
+                    recoveryPlan,
+                    recoveryJobResourceId.Name);
             if (!Guid.TryParseExact(recoveryJobResourceId.Name, "D", out _) ||
-                recoveryJobResourceId.ResourceType != RecoveryJobResource.ResourceType ||
-                !string.Equals(recoveryJobResourceId.Parent?.ToString(), expectedJobId.Parent?.ToString(), StringComparison.OrdinalIgnoreCase))
+                recoveryJobResourceId.ResourceType !=
+                    RecoveryJobResource.ResourceType ||
+                !string.Equals(
+                    recoveryJobResourceId.Parent?.ToString(),
+                    expectedJobId.Parent?.ToString(),
+                    StringComparison.OrdinalIgnoreCase))
             {
-                throw new InvalidOperationException("The readiness operation returned an invalid recovery job identifier.");
+                throw new InvalidOperationException(
+                    "The operation returned an invalid recovery job identifier.");
             }
 
             return recoveryJobResourceId;
         }
-        catch (Exception ex) when (ex is JsonException or FormatException or ArgumentException)
+        catch (Exception ex) when (ex is FormatException or ArgumentException)
         {
-            throw new InvalidOperationException("The readiness operation returned an invalid recovery job identifier.", ex);
+            throw new InvalidOperationException(
+                "The operation returned an invalid recovery job identifier.",
+                ex);
         }
     }
 
@@ -1095,6 +1215,30 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
             token => GetRecoveryJobIfAvailableAsync(recoveryJob, token),
             job => IsTerminalJobStatus(GetRequiredProperties(job.Data.Properties, "recovery job").Status?.ToString() ?? string.Empty),
             $"readiness recovery job '{recoveryJobId}'",
+            RecoveryPlanPollingInterval,
+            RecoveryPlanOperationTimeout,
+            cancellationToken);
+    }
+
+    private static async Task<RecoveryJobResource> WaitForRecoveryPlanActionJobCompletionAsync(
+        ArmClient armClient,
+        string serviceGroup,
+        string recoveryPlan,
+        string? recoveryJobId,
+        string action,
+        CancellationToken cancellationToken)
+    {
+        ResourceIdentifier jobId = GetRecoveryJobResourceId(
+            recoveryJobId,
+            serviceGroup,
+            recoveryPlan);
+        RecoveryJobResource recoveryJob = armClient.GetRecoveryJobResource(jobId);
+        return await WaitForCompletionAsync(
+            token => GetRecoveryJobIfAvailableAsync(recoveryJob, token),
+            job => IsTerminalJobStatus(
+                GetRequiredProperties(job.Data.Properties, "recovery job").Status?.ToString() ??
+                string.Empty),
+            $"{action} recovery job '{jobId.Name}'",
             RecoveryPlanPollingInterval,
             RecoveryPlanOperationTimeout,
             cancellationToken);
@@ -1517,7 +1661,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<IEnumerable<ResourceSummary>> ListRecoveryResourcesAsync(string serviceGroup, string recoveryPlan, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryPlanId = RecoveryPlanResource.CreateResourceIdentifier(serviceGroup, recoveryPlan);
         RecoveryPlanResource recoveryPlanResource = await armClient.GetRecoveryPlanResource(recoveryPlanId).GetAsync(cancellationToken);
@@ -1536,7 +1680,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<JsonElement> GetRecoveryResourceAsync(string serviceGroup, string recoveryPlan, string recoveryResource, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryPlanId = RecoveryPlanResource.CreateResourceIdentifier(serviceGroup, recoveryPlan);
         RecoveryPlanResource recoveryPlanResource = await armClient.GetRecoveryPlanResource(recoveryPlanId).GetAsync(cancellationToken);
@@ -1549,7 +1693,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<IEnumerable<ResourceSummary>> ListRecoveryJobsAsync(string serviceGroup, string recoveryPlan, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryPlanId = RecoveryPlanResource.CreateResourceIdentifier(serviceGroup, recoveryPlan);
         RecoveryJobCollection recoveryJobs = armClient.GetRecoveryPlanResource(recoveryPlanId).GetRecoveryJobs();
@@ -1567,7 +1711,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<JsonElement> GetRecoveryJobAsync(string serviceGroup, string recoveryPlan, string recoveryJob, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryJobId = RecoveryJobResource.CreateResourceIdentifier(serviceGroup, recoveryPlan, recoveryJob);
         Response<RecoveryJobResource> response = await armClient.GetRecoveryJobResource(recoveryJobId).GetAsync(cancellationToken);
@@ -1587,10 +1731,15 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     private async Task<RecoveryJobRetryResult> RetryRecoveryJobCoreAsync(string serviceGroup, string recoveryPlan, string recoveryJob, string? tenant, CancellationToken cancellationToken)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
-
         var recoveryJobId = RecoveryJobResource.CreateResourceIdentifier(serviceGroup, recoveryPlan, recoveryJob);
-        RecoveryJobResource recoveryJobResource = await armClient.GetRecoveryJobResource(recoveryJobId).GetAsync(cancellationToken);
+        ArmClient readClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
+        _ = await readClient.GetRecoveryJobResource(recoveryJobId).GetAsync(cancellationToken);
+        ArmClient mutationClient = await CreateRecoveryArmClientAsync(
+            tenant,
+            cancellationToken,
+            disableRetries: true);
+        RecoveryJobResource recoveryJobResource =
+            mutationClient.GetRecoveryJobResource(recoveryJobId);
         string operationId = Guid.NewGuid().ToString();
         ArmOperation<ArmResponseErrorResponseResult> operation = await recoveryJobResource.RetryAsync(
             WaitUntil.Started,
@@ -1618,10 +1767,15 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     private async Task<RecoveryJobResumeResult> ResumeRecoveryJobCoreAsync(string serviceGroup, string recoveryPlan, string recoveryJob, string? description, string? tenant, CancellationToken cancellationToken)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
-
         var recoveryJobId = RecoveryJobResource.CreateResourceIdentifier(serviceGroup, recoveryPlan, recoveryJob);
-        RecoveryJobResource recoveryJobResource = await armClient.GetRecoveryJobResource(recoveryJobId).GetAsync(cancellationToken);
+        ArmClient readClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
+        _ = await readClient.GetRecoveryJobResource(recoveryJobId).GetAsync(cancellationToken);
+        ArmClient mutationClient = await CreateRecoveryArmClientAsync(
+            tenant,
+            cancellationToken,
+            disableRetries: true);
+        RecoveryJobResource recoveryJobResource =
+            mutationClient.GetRecoveryJobResource(recoveryJobId);
         string operationId = Guid.NewGuid().ToString();
         ArmOperation<ArmResponseErrorResponseResult> operation = await recoveryJobResource.ResumeAsync(
             WaitUntil.Started,
@@ -1637,13 +1791,6 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
             operationId,
             "Accepted",
             $"Recovery job resume was accepted. Use 'resiliency recoveryjob get --service-group {serviceGroup} --recoveryplan {recoveryPlan} --recoveryjob {recoveryJob}' to monitor progress.");
-    }
-
-    private static string CreateRecoveryPlanActionTrackingMessage(string action, string? jobId)
-    {
-        return jobId is null
-            ? $"{action} was accepted. Use 'resiliency recoveryjob get' to list recovery jobs, then provide --recoveryjob to monitor the new job."
-            : $"{action} was accepted. Use 'resiliency recoveryjob get --recoveryjob {jobId}' to monitor progress.";
     }
 
     internal static void ThrowIfProviderError(ArmResponseErrorResponseResult result, string operationDescription)
@@ -1667,7 +1814,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<IEnumerable<ResourceSummary>> ListRecoveryJobResourcesAsync(string serviceGroup, string recoveryPlan, string recoveryJob, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryJobId = RecoveryJobResource.CreateResourceIdentifier(serviceGroup, recoveryPlan, recoveryJob);
         RecoveryJobResource recoveryJobResource = await armClient.GetRecoveryJobResource(recoveryJobId).GetAsync(cancellationToken);
@@ -1686,7 +1833,7 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<JsonElement> GetRecoveryJobResourceAsync(string serviceGroup, string recoveryPlan, string recoveryJob, string recoveryJobTarget, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateRecoveryArmClientAsync(tenant, cancellationToken);
 
         var recoveryJobTargetId = RecoveryJobTargetResource.CreateResourceIdentifier(serviceGroup, recoveryPlan, recoveryJob, recoveryJobTarget);
         Response<RecoveryJobTargetResource> response = await armClient.GetRecoveryJobTargetResource(recoveryJobTargetId).GetAsync(cancellationToken);
@@ -1697,7 +1844,10 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<IEnumerable<ResourceSummary>> ListDrillsAsync(string serviceGroup, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateArmClientAsync(
+            tenantIdOrName: tenant,
+            armClientOptions: CreateDrillContractArmClientOptions(),
+            cancellationToken: cancellationToken);
 
         var serviceGroupId = CreateServiceGroupResourceIdentifier(serviceGroup);
         ResilienceManagementDrillCollection drills = armClient.GetResilienceManagementDrills(serviceGroupId);
@@ -1715,13 +1865,17 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<DrillInfo> GetDrillAsync(string serviceGroup, string drill, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateArmClientAsync(
+            tenantIdOrName: tenant,
+            armClientOptions: CreateDrillContractArmClientOptions(),
+            cancellationToken: cancellationToken);
 
         var serviceGroupId = CreateServiceGroupResourceIdentifier(serviceGroup);
         ResilienceManagementDrillCollection drills = armClient.GetResilienceManagementDrills(serviceGroupId);
         Response<ResilienceManagementDrillResource> response = await drills.GetAsync(drill, cancellationToken);
 
-        return MapDrill(response.Value.Data);
+        using JsonDocument document = JsonDocument.Parse(response.GetRawResponse().Content);
+        return MapDrill(document.RootElement);
     }
 
     private static DrillInfo MapDrill(ResilienceManagementDrillData data)
@@ -1748,7 +1902,10 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
             ? subscription
             : (await AzureService.GetSubscription(subscription, tenant, cancellationToken: cancellationToken)).Data.SubscriptionId;
 
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateArmClientAsync(
+            tenantIdOrName: tenant,
+            armClientOptions: CreateDrillContractArmClientOptions(disableRetries: true),
+            cancellationToken: cancellationToken);
 
         var serviceGroupId = CreateServiceGroupResourceIdentifier(serviceGroup);
         ResilienceManagementDrillCollection drills = armClient.GetResilienceManagementDrills(serviceGroupId);
@@ -1801,10 +1958,6 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
             ? subscription
             : (await AzureService.GetSubscription(subscription, tenant, cancellationToken: cancellationToken)).Data.SubscriptionId;
 
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
-
-        var drillId = ResilienceManagementDrillResource.CreateResourceIdentifier(serviceGroup, drill);
-        ResilienceManagementDrillResource drillResource = armClient.GetResilienceManagementDrillResource(drillId);
         properties ??= new DrillUpdateProperties();
 
         if (subscriptionId is not null && region is not null)
@@ -1825,13 +1978,26 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
             Properties = properties,
             Identity = identity
         };
+        BinaryData wireContent =
+            ((IPersistableModel<ResilienceManagementDrillPatch>)patch).Write(
+                new ModelReaderWriterOptions("W"));
+        ArmClient armClient = await CreateArmClientAsync(
+            tenantIdOrName: tenant,
+            armClientOptions: CreateDrillContractArmClientOptions(
+                wireContent,
+                disableRetries: true),
+            cancellationToken: cancellationToken);
+        var drillId = ResilienceManagementDrillResource.CreateResourceIdentifier(serviceGroup, drill);
+        ResilienceManagementDrillResource drillResource =
+            armClient.GetResilienceManagementDrillResource(drillId);
 
         ArmOperation operation = await drillResource.UpdateAsync(WaitUntil.Started, patch, cancellationToken);
         await WaitForLroCompletionAsync(operation, cancellationToken);
 
         Response<ResilienceManagementDrillResource> response = await drillResource.GetAsync(cancellationToken);
-
-        return MapDrill(response.Value.Data);
+        using JsonDocument document = JsonDocument.Parse(response.GetRawResponse().Content);
+        DrillConfiguration.ValidateMonitoringReadBack(properties, document.RootElement);
+        return MapDrill(document.RootElement);
     }
 
     public async Task<DrillResyncReadinessResult> CheckDrillResyncReadinessAsync(
@@ -1924,7 +2090,10 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task DeleteDrillAsync(string serviceGroup, string drill, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateArmClientAsync(
+            tenantIdOrName: tenant,
+            armClientOptions: CreateDrillContractArmClientOptions(disableRetries: true),
+            cancellationToken: cancellationToken);
 
         var drillId = ResilienceManagementDrillResource.CreateResourceIdentifier(serviceGroup, drill);
         ResilienceManagementDrillResource drillResource = armClient.GetResilienceManagementDrillResource(drillId);
@@ -1968,7 +2137,10 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<IEnumerable<ResourceSummary>> ListDrillResourcesAsync(string serviceGroup, string drill, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateArmClientAsync(
+            tenantIdOrName: tenant,
+            armClientOptions: CreateDrillContractArmClientOptions(),
+            cancellationToken: cancellationToken);
 
         var drillId = ResilienceManagementDrillResource.CreateResourceIdentifier(serviceGroup, drill);
         ResilienceManagementDrillResource drillResource = armClient.GetResilienceManagementDrillResource(drillId);
@@ -1987,7 +2159,10 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<DrillResourceInfo> GetDrillResourceAsync(string serviceGroup, string drill, string drillResource, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateArmClientAsync(
+            tenantIdOrName: tenant,
+            armClientOptions: CreateDrillContractArmClientOptions(),
+            cancellationToken: cancellationToken);
 
         var drillId = ResilienceManagementDrillResource.CreateResourceIdentifier(serviceGroup, drill);
         ResilienceManagementDrillResource drillInstanceResource = armClient.GetResilienceManagementDrillResource(drillId);
@@ -2014,7 +2189,10 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<IEnumerable<ResourceSummary>> ListDrillRunsAsync(string serviceGroup, string drill, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateArmClientAsync(
+            tenantIdOrName: tenant,
+            armClientOptions: CreateDrillContractArmClientOptions(),
+            cancellationToken: cancellationToken);
 
         var drillId = ResilienceManagementDrillResource.CreateResourceIdentifier(serviceGroup, drill);
         ResilienceManagementDrillResource drillResource = armClient.GetResilienceManagementDrillResource(drillId);
@@ -2033,7 +2211,10 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<JsonElement> GetDrillRunAsync(string serviceGroup, string drill, string drillRun, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient armClient = await CreateArmClientAsync(
+            tenantIdOrName: tenant,
+            armClientOptions: CreateDrillContractArmClientOptions(),
+            cancellationToken: cancellationToken);
 
         var drillId = ResilienceManagementDrillResource.CreateResourceIdentifier(serviceGroup, drill);
         ResilienceManagementDrillResource drillResource = armClient.GetResilienceManagementDrillResource(drillId);
@@ -2063,9 +2244,27 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<string> FailoverDrillRunAsync(string serviceGroup, string drill, string drillRun, IEnumerable<string> sourceLocations, IEnumerable<string>? selectedResourceIds = null, bool autoFailover = false, string? userConsent = null, string? tenant = null, CancellationToken cancellationToken = default)
     {
+        string[] selectedIds = selectedResourceIds?.ToArray() ?? [];
+        if (selectedIds.Length > 0)
+        {
+            JsonElement drillRunState = await GetDrillRunAsync(
+                serviceGroup,
+                drill,
+                drillRun,
+                tenant,
+                cancellationToken);
+            DrillSelectedResourceKind expectedKind =
+                ResolveFailoverSelectedResourceKind(drillRunState);
+            ValidateSelectedResourceIdsForSubmission(
+                selectedIds,
+                serviceGroup,
+                drill,
+                expectedKind);
+        }
+
         ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, armClientOptions: CreateArmClientOptionsWithOperationIdPolicy(), cancellationToken: cancellationToken);
 
-        var failoverProperties = CreateFailoverRequestContent(sourceLocations.ToList(), selectedResourceIds?.ToList(), userConsent);
+        var failoverProperties = CreateFailoverRequestContent(sourceLocations.ToList(), selectedIds, userConsent);
         var content = new DrillRunFailoverContent(
             autoFailover ? DrillRunAutoFailover.Enable : DrillRunAutoFailover.Disable,
             failoverProperties);
@@ -2107,7 +2306,34 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
 
     public async Task<string> ReprotectDrillRunAsync(string serviceGroup, string drill, string drillRun, IReadOnlyList<string>? selectedResourceIds = null, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient armClient = await CreateArmClientAsync(tenantIdOrName: tenant, armClientOptions: CreateArmClientOptionsWithOperationIdPolicy(), cancellationToken: cancellationToken);
+        JsonElement drillRunState = await GetDrillRunAsync(
+            serviceGroup,
+            drill,
+            drillRun,
+            tenant,
+            cancellationToken);
+        if (!SupportsDrillRunStageVerb(drillRunState, "Reprotect", "Start", "Retry") &&
+            !SupportsDrillRunStageVerb(drillRunState, "ReprotectReverse", "Start", "Retry"))
+        {
+            throw new RequestFailedException(
+                409,
+                "Neither Reprotect nor ReprotectReverse currently exposes Start or Retry. Wait for the preceding stage to converge before submitting reprotection.");
+        }
+
+        if (selectedResourceIds is { Count: > 0 })
+        {
+            ValidateSelectedResourceIdsForSubmission(
+                selectedResourceIds,
+                serviceGroup,
+                drill,
+                DrillSelectedResourceKind.RecoveryResource);
+        }
+
+        BinaryData wireContent = CreateDrillRunReprotectWireContent(selectedResourceIds);
+        ArmClient armClient = await CreateArmClientAsync(
+            tenantIdOrName: tenant,
+            armClientOptions: CreateDrillRunReprotectClientOptions(wireContent),
+            cancellationToken: cancellationToken);
 
         var drillRunId = DrillRunResource.CreateResourceIdentifier(serviceGroup, drill, drillRun);
         DrillRunResource drillRunResource = armClient.GetDrillRunResource(drillRunId);
@@ -2117,6 +2343,125 @@ public sealed partial class ResilienceManagementService(IAzureService azureServi
         await drillRunResource.ReprotectAsync(WaitUntil.Started, operationId, content, cancellationToken);
 
         return operationId;
+    }
+
+    internal static DrillSelectedResourceKind ResolveFailoverSelectedResourceKind(
+        JsonElement drillRun)
+    {
+        foreach (string stage in new[] { "FaultInjectionReverse", "FailoverReverse" })
+        {
+            if (SupportsDrillRunStageVerb(drillRun, stage, "Start", "Retry"))
+            {
+                return DrillSelectedResourceKind.RecoveryResource;
+            }
+        }
+
+        foreach (string stage in new[] { "FaultInjection", "Failover" })
+        {
+            if (SupportsDrillRunStageVerb(drillRun, stage, "Start", "Retry"))
+            {
+                return DrillSelectedResourceKind.DrillResource;
+            }
+        }
+
+        throw new RequestFailedException(
+            409,
+            "The drill run does not expose a forward or reverse failover stage with Start or Retry.");
+    }
+
+    internal static bool SupportsDrillRunStageVerb(
+        JsonElement drillRun,
+        string stage,
+        params string[] expectedVerbs)
+    {
+        if (!drillRun.TryGetProperty("properties", out JsonElement properties) ||
+            !properties.TryGetProperty("supportedVerbsForStage", out JsonElement stageVerbs) ||
+            stageVerbs.ValueKind != JsonValueKind.Array)
+        {
+            return false;
+        }
+
+        foreach (JsonElement candidate in stageVerbs.EnumerateArray())
+        {
+            if (candidate.ValueKind != JsonValueKind.Object ||
+                !candidate.TryGetProperty("drillRunStage", out JsonElement stageName) ||
+                !string.Equals(stageName.GetString(), stage, StringComparison.OrdinalIgnoreCase) ||
+                !candidate.TryGetProperty("supportedVerbs", out JsonElement verbs) ||
+                verbs.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            return verbs.EnumerateArray().Any(verb =>
+                verb.ValueKind == JsonValueKind.String &&
+                expectedVerbs.Contains(
+                    verb.GetString(),
+                    StringComparer.OrdinalIgnoreCase));
+        }
+
+        return false;
+    }
+
+    private static void ValidateSelectedResourceIdsForSubmission(
+        IReadOnlyList<string> selectedResourceIds,
+        string serviceGroup,
+        string drill,
+        DrillSelectedResourceKind expectedKind)
+    {
+        DrillSelectedResourceKind? actualKind = null;
+        foreach (string resourceId in selectedResourceIds)
+        {
+            DrillSelectedResourceKind? candidate =
+                DrillActionValidation.GetSelectedResourceKind(
+                    resourceId,
+                    serviceGroup,
+                    drill);
+            if (candidate is null ||
+                (actualKind is not null && actualKind != candidate) ||
+                candidate != expectedKind)
+            {
+                string expected = expectedKind == DrillSelectedResourceKind.DrillResource
+                    ? "drill-resource IDs for forward fault injection or failover"
+                    : "qualified RO recovery-resource IDs for reverse operations";
+                throw new ArgumentException(
+                    $"Selected resource IDs must be a non-mixed set of {expected}.",
+                    nameof(selectedResourceIds));
+            }
+
+            actualKind = candidate;
+        }
+    }
+
+    internal static BinaryData CreateDrillRunReprotectWireContent(
+        IEnumerable<string>? selectedResourceIds)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WritePropertyName("reprotectProperties");
+            writer.WriteStartObject();
+
+            string[] resourceIds = selectedResourceIds?.ToArray() ?? [];
+            if (resourceIds.Length > 0)
+            {
+                writer.WritePropertyName("reprotectRequestProperties");
+                writer.WriteStartObject();
+                writer.WritePropertyName("selectedResourceIds");
+                writer.WriteStartArray();
+                foreach (string resourceId in resourceIds)
+                {
+                    writer.WriteStringValue(resourceId);
+                }
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+
+        return BinaryData.FromBytes(stream.ToArray());
     }
 
     public async Task<DrillRunGenerateReportResult> GenerateDrillRunReportAsync(string serviceGroup, string drill, string drillRun, string? tenant = null, CancellationToken cancellationToken = default)

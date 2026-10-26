@@ -58,8 +58,8 @@ public sealed class RecoveryPlanFailoverCommandTests : CommandUnitTestsBase<Reco
         var expected = new RecoveryPlanFailoverResult(
             "11111111-1111-1111-1111-111111111111",
             "22222222-2222-2222-2222-222222222222",
-            "Accepted",
-            "Failover was accepted.");
+            "Completed",
+            "Failover recovery job reached terminal state.");
         Service.FailoverRecoveryPlanAsync(
             "sg1",
             "plan1",

@@ -47,6 +47,21 @@ public sealed class DrillRunReprotectCommandTests : CommandUnitTestsBase<DrillRu
     }
 
     [Fact]
+    public async Task ExecuteAsync_RejectsForwardDrillResource()
+    {
+        const string id = "/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.AzureResilienceManagement/drills/drill1/drillResources/22222222-2222-2222-2222-222222222222";
+        var response = await ExecuteCommandAsync(
+            "--service-group", ServiceGroup,
+            "--drill", Drill,
+            "--drill-run", DrillRun,
+            "--selected-resource-ids", id);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.Status);
+        Assert.Contains("qualified RO recovery-resource IDs", response.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Service.ReceivedCalls());
+    }
+
+    [Fact]
     public void Constructor_InitializesCommandCorrectly()
     {
         var command = Command.GetCommand();

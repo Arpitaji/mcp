@@ -210,6 +210,35 @@ public class EndpointValidatorTests
     }
 
     [Theory]
+    [InlineData("https://centraluseuap.management.azure.com")]
+    [InlineData("https://eastus2euap.management.azure.com")]
+    [InlineData("https://CENTRALUSEUAP.MANAGEMENT.AZURE.COM")]
+    public void ValidateAzureServiceEndpoint_ArmRegionalEndpoint_RequiresExactApprovedHost(
+        string endpoint)
+    {
+        var exception = Record.Exception(() => s_validator.ValidateAzureServiceEndpoint(
+            endpoint,
+            "arm",
+            ArmEnvironment.AzurePublicCloud));
+
+        Assert.Null(exception);
+    }
+
+    [Theory]
+    [InlineData("https://other.management.azure.com")]
+    [InlineData("https://sub.centraluseuap.management.azure.com")]
+    [InlineData("https://centraluseuap.management.azure.com.evil.example")]
+    [InlineData("https://eastus2euap.management.azure.com.evil.example")]
+    public void ValidateAzureServiceEndpoint_ArmCustomEndpoint_FailsClosed(
+        string endpoint)
+    {
+        Assert.Throws<SecurityException>(() => s_validator.ValidateAzureServiceEndpoint(
+            endpoint,
+            "arm",
+            ArmEnvironment.AzurePublicCloud));
+    }
+
+    [Theory]
     [InlineData("eventgrid")]
     [InlineData("foundry")]
     [InlineData("iothub")]

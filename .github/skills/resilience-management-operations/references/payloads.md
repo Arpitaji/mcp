@@ -48,6 +48,10 @@ On create, identity is required in each supplied configuration; Health Model and
 On update, omitted configurations and nested fields are preserved. Supplying `slis` replaces the entire selection; allow at most one `Availability` and one `Latency` entry, with no duplicate IDs. An empty array does not clear monitoring. To clear Health Model or SLI monitoring, use the string `"null"` as that tool option's payload (CLI: `--sli-monitoring-properties null`); the resulting ARM PATCH contains JSON null. A missing/null tool parameter is omission, not a clear operation. Goal configuration cannot be cleared using null.
 
 Each JSON option is limited to 1 MB. Unknown, duplicate, and read-only properties are rejected rather than silently discarded.
+These examples match the command parser tests and the `2026-10-31-preview`
+wire contract. Do not convert them to an obsolete `(kind, resourceId, identity,
+sliKind)` monitoring tuple. Drill update emits one canonical PATCH and verifies
+the exact requested source through the authoritative read-back.
 
 ## Goal Resource Updates (GA)
 
@@ -79,6 +83,10 @@ and `properties.zonalResiliency` with at least one change:
 
 The example's confirmation must reflect the user's actual decision; do not copy it
 as a default approval. Omit fields that are not being changed.
+
+The parser requires this exact nesting: an array of resources, each with
+`properties.resourceArmId` and `properties.zonalResiliency`. Flat
+`goalParticipation`, HA, DR, availability, or data-residency tuples are rejected.
 
 | Field | Exact case-sensitive values |
 |---|---|

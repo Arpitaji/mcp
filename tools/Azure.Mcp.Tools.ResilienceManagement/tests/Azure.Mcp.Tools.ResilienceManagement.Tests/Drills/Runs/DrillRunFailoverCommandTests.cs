@@ -158,7 +158,6 @@ public sealed class DrillRunFailoverCommandTests : CommandUnitTestsBase<DrillRun
     [InlineData("/providers/Microsoft.Management/serviceGroups/other/providers/Microsoft.AzureResilienceManagement/recoveryPlans/plan1/recoveryResources/resource1")]
     [InlineData("/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.AzureResilienceManagement/recoveryResources/resource1")]
     [InlineData("/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.AzureResilienceManagement/recoveryPlans/plan1/virtualMachines/vm1")]
-    [InlineData("/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.AzureResilienceManagement/recoveryPlans/plan1/recoveryResources/22222222-2222-2222-2222-222222222222")]
     [InlineData("/providers/Microsoft.Management/serviceGroups/other/providers/Microsoft.AzureResilienceManagement/drills/drill1/drillResources/22222222-2222-2222-2222-222222222222")]
     [InlineData("/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.AzureResilienceManagement/drills/other/drillResources/22222222-2222-2222-2222-222222222222")]
     [InlineData("/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.AzureResilienceManagement/drills/drill1/drillResources/resource1")]
@@ -174,7 +173,7 @@ public sealed class DrillRunFailoverCommandTests : CommandUnitTestsBase<DrillRun
             "--selected-resource-ids", selectedResourceId);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.Status);
-        Assert.Contains("full drill-resource ID under the requested service group and drill", response.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("full drill-resource ID", response.Message, StringComparison.OrdinalIgnoreCase);
         await Service.DidNotReceive().FailoverDrillRunAsync(
             Arg.Any<string>(),
             Arg.Any<string>(),
@@ -187,9 +186,27 @@ public sealed class DrillRunFailoverCommandTests : CommandUnitTestsBase<DrillRun
             Arg.Any<CancellationToken>());
     }
 
+    [Fact]
+    public async Task ExecuteAsync_RejectsMixedLifecycleResourceIds()
+    {
+        const string recoveryResourceId = "/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.AzureResilienceManagement/recoveryPlans/plan1/recoveryResources/33333333-3333-3333-3333-333333333333";
+        var response = await ExecuteCommandAsync(
+            "--service-group", ServiceGroup,
+            "--drill", Drill,
+            "--drill-run", DrillRun,
+            "--source-locations", SourceLocation,
+            "--selected-resource-ids", SelectedResourceId,
+            "--selected-resource-ids", recoveryResourceId);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.Status);
+        Assert.Contains("cannot mix", response.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Service.ReceivedCalls());
+    }
+
     [Theory]
     [InlineData(SelectedResourceId)]
     [InlineData("/providers/Microsoft.Management/serviceGroups/SG1/providers/Microsoft.AzureResilienceManagement/drills/DRILL1/drillResources/22222222-2222-2222-2222-222222222222")]
+    [InlineData("/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.AzureResilienceManagement/recoveryPlans/plan1/recoveryResources/22222222-2222-2222-2222-222222222222")]
     public async Task ExecuteAsync_StartsFailoverAndReturnsAcceptedResult(string selectedResourceId)
     {
         Service.FailoverDrillRunAsync(

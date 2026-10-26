@@ -44,7 +44,11 @@ public sealed class DrillRunFailoverCommand(ILogger<DrillRunFailoverCommand> log
             validationResult.Errors.Add("Each source location must use the physical Azure zone format '<region>-az<zone-number>', such as 'eastus-az1'.");
         }
 
-        DrillActionValidation.ValidateSelectedResourceIds(options.SelectedResourceIds, options.ServiceGroup, validationResult, drill: options.Drill);
+        DrillActionValidation.ValidateSelectedResourceIds(
+            options.SelectedResourceIds,
+            options.ServiceGroup,
+            validationResult,
+            options.Drill);
 
         if (options.UserConsent is not null &&
             !string.Equals(options.UserConsent, "Unspecified", StringComparison.OrdinalIgnoreCase) &&

@@ -15,8 +15,15 @@ public sealed partial class ResilienceManagementService
     private static readonly TimeSpan GoalAssignmentOperationTimeout = TimeSpan.FromMinutes(10);
 
     private Task<ArmClient> CreateGoalArmClientAsync(
-        string? tenantIdOrName, CancellationToken cancellationToken, ArmClientOptions? armClientOptions = null)
+        string? tenantIdOrName,
+        CancellationToken cancellationToken,
+        ArmClientOptions? armClientOptions = null,
+        bool disableRetries = false)
     {
+        armClientOptions = CreateGoalContractArmClientOptions(
+            armClientOptions,
+            disableRetries);
+
 #if DEBUG
         if (Environment.GetEnvironmentVariable("MCP_GOALS_TEST_ECY") == "true")
         {
@@ -25,18 +32,35 @@ public sealed partial class ResilienceManagementService
                 throw new InvalidOperationException("Goals canary tests require TEST_PROXY_URL to capture every request.");
             }
 
-            armClientOptions ??= new ArmClientOptions();
             armClientOptions.AddPolicy(new GoalTestRoutingPolicy(), HttpPipelinePosition.PerCall);
         }
 #endif
         return CreateArmClientAsync(tenantIdOrName, armClientOptions, cancellationToken);
     }
 
+    internal static ArmClientOptions CreateGoalContractArmClientOptions(
+        ArmClientOptions? options = null,
+        bool disableRetries = false)
+    {
+        options ??= new ArmClientOptions();
+        options.AddPolicy(new ResilienceManagementRoutingPolicy(), HttpPipelinePosition.PerCall);
+        options.AddPolicy(new GoalAssignmentContractRequestPolicy(), HttpPipelinePosition.PerCall);
+        if (disableRetries)
+        {
+            options.Retry.MaxRetries = 0;
+        }
+
+        return options;
+    }
+
     public async Task<GoalAssignmentInfo> CreateGoalAssignmentAsync(
         string serviceGroup, string goalAssignment, bool requireZonalResiliency,
         IReadOnlyList<string>? serviceLevelResourceIds = null, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient client = await CreateGoalArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient client = await CreateGoalArmClientAsync(
+            tenantIdOrName: tenant,
+            cancellationToken: cancellationToken,
+            disableRetries: true);
         ResourceIdentifier id = GoalAssignmentResource.CreateResourceIdentifier(serviceGroup, goalAssignment);
         GoalAssignmentCollection assignments = client.GetGoalAssignments(id.Parent);
         GoalAssignmentData data = CreateGoalAssignmentData(requireZonalResiliency, serviceLevelResourceIds ?? []);
@@ -50,7 +74,10 @@ public sealed partial class ResilienceManagementService
         string serviceGroup, string goalAssignment, IReadOnlyList<string> serviceLevelResourceIds,
         string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient client = await CreateGoalArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient client = await CreateGoalArmClientAsync(
+            tenantIdOrName: tenant,
+            cancellationToken: cancellationToken,
+            disableRetries: true);
         GoalAssignmentResource resource = client.GetGoalAssignmentResource(
             GoalAssignmentResource.CreateResourceIdentifier(serviceGroup, goalAssignment));
         Response<GoalAssignmentResource> current = await resource.GetAsync(cancellationToken);
@@ -79,7 +106,10 @@ public sealed partial class ResilienceManagementService
     public async Task<bool> DeleteGoalAssignmentAsync(
         string serviceGroup, string goalAssignment, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient client = await CreateGoalArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient client = await CreateGoalArmClientAsync(
+            tenantIdOrName: tenant,
+            cancellationToken: cancellationToken,
+            disableRetries: true);
         GoalAssignmentResource resource = client.GetGoalAssignmentResource(
             GoalAssignmentResource.CreateResourceIdentifier(serviceGroup, goalAssignment));
         try
@@ -100,7 +130,10 @@ public sealed partial class ResilienceManagementService
         string serviceGroup, string goalAssignment, IReadOnlyList<string> resourceIds,
         string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient client = await CreateGoalArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient client = await CreateGoalArmClientAsync(
+            tenantIdOrName: tenant,
+            cancellationToken: cancellationToken,
+            disableRetries: true);
         GoalAssignmentResource resource = client.GetGoalAssignmentResource(
             GoalAssignmentResource.CreateResourceIdentifier(serviceGroup, goalAssignment));
         var content = new RecommendCapacityContent(resourceIds.Select(id => new ResourceIdentifier(id)));
@@ -111,7 +144,10 @@ public sealed partial class ResilienceManagementService
     public async Task<GoalAssignmentOperationResult> RefreshGoalAssignmentResourcesAsync(
         string serviceGroup, string goalAssignment, string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient client = await CreateGoalArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient client = await CreateGoalArmClientAsync(
+            tenantIdOrName: tenant,
+            cancellationToken: cancellationToken,
+            disableRetries: true);
         GoalAssignmentResource resource = client.GetGoalAssignmentResource(
             GoalAssignmentResource.CreateResourceIdentifier(serviceGroup, goalAssignment));
         ArmOperation operation = await resource.RefreshGoalResourcesAsync(WaitUntil.Started, cancellationToken);
@@ -122,7 +158,10 @@ public sealed partial class ResilienceManagementService
         string serviceGroup, string goalAssignment, UpdateGoalResourceContent content,
         string? tenant = null, CancellationToken cancellationToken = default)
     {
-        ArmClient client = await CreateGoalArmClientAsync(tenantIdOrName: tenant, cancellationToken: cancellationToken);
+        ArmClient client = await CreateGoalArmClientAsync(
+            tenantIdOrName: tenant,
+            cancellationToken: cancellationToken,
+            disableRetries: true);
         GoalAssignmentResource resource = client.GetGoalAssignmentResource(
             GoalAssignmentResource.CreateResourceIdentifier(serviceGroup, goalAssignment));
         var members = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -138,7 +177,11 @@ public sealed partial class ResilienceManagementService
             .ToArray();
         var options = new ArmClientOptions();
         options.AddPolicy(new GoalResourceIdPolicy(resourceIds), HttpPipelinePosition.PerCall);
-        client = await CreateGoalArmClientAsync(tenantIdOrName: tenant, armClientOptions: options, cancellationToken: cancellationToken);
+        client = await CreateGoalArmClientAsync(
+            tenantIdOrName: tenant,
+            armClientOptions: options,
+            cancellationToken: cancellationToken,
+            disableRetries: true);
         resource = client.GetGoalAssignmentResource(resource.Id);
         ArmOperation operation = await resource.UpdateGoalResourcesAsync(WaitUntil.Started, content, cancellationToken);
         return CreateGoalAssignmentOperationResult(serviceGroup, goalAssignment, operation);

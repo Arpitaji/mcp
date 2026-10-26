@@ -15,17 +15,19 @@ internal sealed class GoalAssignmentContractRequestPolicy(BinaryData? content = 
     {
         string path = message.Request.Uri.ToUri().AbsolutePath;
         if (!path.Contains(
-                "/providers/Microsoft.AzureResilienceManagement/goalAssignments/",
-                StringComparison.OrdinalIgnoreCase) ||
-            path.Contains("/goalResources", StringComparison.OrdinalIgnoreCase))
+                "/providers/Microsoft.AzureResilienceManagement/goalAssignments",
+                StringComparison.OrdinalIgnoreCase))
         {
             return;
         }
 
-        message.Request.Uri.Query = $"api-version={ApiVersion}";
+        var query = System.Web.HttpUtility.ParseQueryString(message.Request.Uri.Query);
+        query["api-version"] = ApiVersion;
+        message.Request.Uri.Query = query.ToString() ?? string.Empty;
         if (content is not null && message.Request.Method == RequestMethod.Put)
         {
             message.Request.Content = RequestContent.Create(content);
+            message.Request.Headers.SetValue("Content-Type", "application/json");
         }
     }
 }

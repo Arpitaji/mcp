@@ -88,7 +88,7 @@ option. GET selects an assignment with `name`; mutations use `goal-assignment`.
 
 For drill-run failover, always collect the physical source zones; the service does not process a failover without them. Automatic failover defaults to `false` (pause after fault injection). Failover selections must be full drill-resource IDs under the requested service group and drill, obtained with drill resource get. Reprotect can restrict processing to selected recovery-resource IDs in the same service group; omission means all qualified resources. Neither request acceptance nor successful input validation proves that fault injection or reprotection has completed.
 
-To update monitoring, send only the fields being changed. A supplied SLI array is a replacement, not an append. Clear Health Model or SLI monitoring only on explicit request, using the string `"null"` as the corresponding JSON option payload. Omission preserves the configuration.
+To update monitoring, send only the fields being changed. A supplied SLI array is a replacement, not an append. Clear Health Model or SLI monitoring only on explicit request, using the string `"null"` as the corresponding JSON option payload. Omission preserves the configuration. The tool sends one canonical PATCH and verifies the exact selected Health Model ID or SLI array from the subsequent Drill GET; a source mismatch is an error, not a successful update.
 
 ## Create a Recovery Plan
 
@@ -130,7 +130,7 @@ For an existing plan, read it first and preserve omitted values. If it retains a
 5. If any user-selected resource is unqualified, stop and ask whether the user wants to correct blockers or explicitly change the selector set.
 6. If selectors change, validate again.
 7. Call `mcp_azure_mcp_ser_resiliency_recoveryplan_failover` with the validated selectors.
-8. Return operation and recovery job IDs; monitor through recovery-job get when requested.
+8. The tool follows the exact returned recovery job to terminal closure. Return the operation ID, exact recovery job ID, and final job status; do not substitute a different newly listed job.
 
 ## Validate and Start Reprotect
 
@@ -139,7 +139,7 @@ For an existing plan, read it first and preserve omitted values. If it retains a
 3. Report per-resource eligibility and blockers.
 4. Stop when no resource qualifies.
 5. Call `mcp_azure_mcp_ser_resiliency_recoveryplan_reprotect` with the same selected IDs.
-6. Return operation and recovery job IDs.
+6. The tool follows the exact returned recovery job to terminal closure. Return the operation ID, exact recovery job ID, and final job status.
 
 ## Validate Another Recovery Operation
 

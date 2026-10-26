@@ -7,7 +7,7 @@ Follow [add-azure-mcp-tools](../../add-azure-mcp-tools/SKILL.md) as the canonica
 
 ## GA SDK Compatibility
 
-The toolset uses `Azure.ResourceManager.ResilienceManagement` 1.0.0 with API `2026-10-01`. Preview recordings must be re-recorded against GA; do not rewrite API versions or weaken matching.
+The toolset uses `Azure.ResourceManager.ResilienceManagement` 1.0.0 while its Goal, Drill, and Recovery transport policies pin the current `2026-10-31-preview` contract for parent, child, action, and polling requests. The generated SDK otherwise emits `2026-10-01` for Recovery requests. Recordings must preserve the current exact version; do not weaken matching or fall back to the generated SDK default.
 
 The GA SDK reuses required-on-create nested models in PATCH and can serialize omitted identity/selection fields as null or empty. `DrillConfigurationPatch` preserves validated sparse configuration JSON through the SDK's protected serialization extension point. Validation requests use public constructors rather than model factories so omitted source locations do not become an empty array.
 

@@ -71,6 +71,34 @@ internal static class DrillConfiguration
         return new DrillConfigurationPatch(document.RootElement);
     }
 
+    internal static void ValidateMonitoringReadBack(
+        DrillUpdateProperties requested,
+        JsonElement drill)
+    {
+        BinaryData serialized =
+            ((IPersistableModel<DrillUpdateProperties>)requested).Write(
+                new ModelReaderWriterOptions("W"));
+        using JsonDocument requestedDocument = JsonDocument.Parse(serialized);
+        JsonElement requestedProperties = requestedDocument.RootElement;
+        if (!drill.TryGetProperty("properties", out JsonElement actualProperties) ||
+            actualProperties.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException(
+                "The drill update completed without an authoritative properties read-back.");
+        }
+
+        ValidateMonitoringSource(
+            requestedProperties,
+            actualProperties,
+            "healthModelMonitoringProperties",
+            "healthModelId");
+        ValidateMonitoringSource(
+            requestedProperties,
+            actualProperties,
+            "sliMonitoringProperties",
+            "slis");
+    }
+
     private const string ChaosResourceOption = "chaos-resource-properties";
     private const string RecoveryPlanOption = "recovery-plan-properties";
     private const string MonitoringOption = "monitoring-properties";
@@ -308,6 +336,7 @@ internal static class DrillConfiguration
         {
             throw new ArgumentException($"--{option} requires one or two SLIs; use JSON null on update to clear the selection.");
         }
+
         var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var types = new HashSet<string>(StringComparer.Ordinal);
         foreach (JsonElement sli in slis.EnumerateArray())
@@ -323,6 +352,50 @@ internal static class DrillConfiguration
             {
                 throw new ArgumentException($"--{option} allows at most one Availability and one Latency SLI, with no duplicate IDs.");
             }
+        }
+    }
+
+    private static void ValidateMonitoringSource(
+        JsonElement requestedProperties,
+        JsonElement actualProperties,
+        string configurationName,
+        string sourceName)
+    {
+        if (!requestedProperties.TryGetProperty(
+                configurationName,
+                out JsonElement requestedConfiguration))
+        {
+            return;
+        }
+
+        bool actualExists = actualProperties.TryGetProperty(
+            configurationName,
+            out JsonElement actualConfiguration);
+        if (requestedConfiguration.ValueKind == JsonValueKind.Null)
+        {
+            if (actualExists && actualConfiguration.ValueKind != JsonValueKind.Null)
+            {
+                throw new InvalidOperationException(
+                    $"The service did not persist the requested {configurationName} clear.");
+            }
+
+            return;
+        }
+
+        if (!requestedConfiguration.TryGetProperty(
+                sourceName,
+                out JsonElement requestedSource))
+        {
+            return;
+        }
+
+        if (!actualExists ||
+            actualConfiguration.ValueKind != JsonValueKind.Object ||
+            !actualConfiguration.TryGetProperty(sourceName, out JsonElement actualSource) ||
+            !JsonElement.DeepEquals(requestedSource, actualSource))
+        {
+            throw new InvalidOperationException(
+                $"The service read-back did not match the requested {configurationName}.{sourceName} source.");
         }
     }
 

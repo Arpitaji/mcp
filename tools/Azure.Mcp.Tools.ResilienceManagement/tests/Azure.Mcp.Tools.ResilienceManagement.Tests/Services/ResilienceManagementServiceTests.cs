@@ -15,7 +15,7 @@ using Xunit;
 
 namespace Azure.Mcp.Tools.ResilienceManagement.Tests.Services;
 
-public sealed class ResilienceManagementServiceTests
+public sealed partial class ResilienceManagementServiceTests
 {
     private const string UserAssignedIdentityResourceId = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/testIdentity";
     private const string RecoveryJobName = "11111111-1111-1111-1111-111111111111";
@@ -79,6 +79,19 @@ public sealed class ResilienceManagementServiceTests
         Assert.NotNull(result.Properties.ErrorDetails);
         Assert.Equal("GoalAssignmentFailed", result.Properties.ErrorDetails.Value.GetProperty("code").GetString());
         Assert.Equal("Failed", result.Properties.ProvisioningState);
+
+        string json = JsonSerializer.Serialize(
+            result,
+            ResilienceManagementJsonContext.Default.GoalAssignmentInfo);
+        using JsonDocument serialized = JsonDocument.Parse(json);
+        JsonElement properties = serialized.RootElement.GetProperty("properties");
+        Assert.Equal(
+            sliId,
+            properties.GetProperty("serviceLevelResources")[0]
+                .GetProperty("serviceLevelIndicatorResourceId").GetString());
+        Assert.Equal(
+            "GoalAssignmentFailed",
+            properties.GetProperty("errorDetails").GetProperty("code").GetString());
     }
 
     [Fact]

@@ -21,8 +21,8 @@ public sealed class RecoveryPlanReprotectCommandTests : CommandUnitTestsBase<Rec
         var expected = new RecoveryPlanReprotectResult(
             "11111111-1111-1111-1111-111111111111",
             "22222222-2222-2222-2222-222222222222",
-            "Accepted",
-            "Reprotect was accepted.");
+            "Completed",
+            "Reprotect recovery job reached terminal state.");
         Service.ReprotectRecoveryPlanAsync("sg1", "plan1", null, null, Arg.Any<CancellationToken>()).Returns(expected);
 
         var response = await ExecuteCommandAsync("--service-group", "sg1", "--recoveryplan", "plan1");
@@ -37,8 +37,8 @@ public sealed class RecoveryPlanReprotectCommandTests : CommandUnitTestsBase<Rec
         var expected = new RecoveryPlanReprotectResult(
             "11111111-1111-1111-1111-111111111111",
             "22222222-2222-2222-2222-222222222222",
-            "Accepted",
-            "Reprotect was accepted.");
+            "Completed",
+            "Reprotect recovery job reached terminal state.");
         Service.ReprotectRecoveryPlanAsync(
             "sg1",
             "plan1",
