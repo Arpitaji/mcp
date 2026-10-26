@@ -6,7 +6,7 @@ using Microsoft.Mcp.Core.Options;
 
 namespace Azure.Mcp.Tools.ResilienceManagement.Options.Drills.Runs;
 
-public sealed class DrillRunResumeOptions : ResilienceManagementOperationOptions
+public sealed class DrillRunResumeOptions
 {
     [Option(Description = ResilienceManagementOptionDescriptions.ServiceGroup)]
     public required string ServiceGroup { get; set; }

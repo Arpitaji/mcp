@@ -14,7 +14,7 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Drills;
     Id = "7de91784-03ba-47e9-8cac-73172828a382",
     Name = "start",
     Title = "Start Resilience Drill",
-    Description = "Starts, runs, or executes a resilience drill in Failover or TestFailover mode. Use this command to begin a new drill execution, not to get or list drill definitions. Returns the operation ID for the accepted asynchronous request. Accepts an optional caller-owned operation ID in canonical GUID format; reuse it for the same logical request, or omit it to generate a new GUID.",
+    Description = "Starts, runs, or executes a resilience drill in Failover or TestFailover mode. Use this command to begin a new drill execution, not to get or list drill definitions. Returns the operation ID for the accepted asynchronous request.",
     OperationPlane = ToolOperationPlane.Control,
     Destructive = true,
     Idempotent = false,
@@ -31,7 +31,6 @@ public sealed class DrillStartCommand(ILogger<DrillStartCommand> logger, IResili
     public override void ValidateOptions(DrillStartOptions options, ValidationResult validationResult)
     {
         base.ValidateOptions(options, validationResult);
-        ResilienceManagementOperationIdValidation.Validate(options.OperationId, validationResult);
         DrillActionValidation.ValidateResourceNames(options.ServiceGroup, options.Drill, validationResult);
         DrillActionValidation.ValidateMode(options.Mode, validationResult);
     }
@@ -45,7 +44,6 @@ public sealed class DrillStartCommand(ILogger<DrillStartCommand> logger, IResili
                 options.Drill,
                 DrillActionValidation.NormalizeMode(options.Mode),
                 options.Tenant,
-                ResilienceManagementOperationIdValidation.Normalize(options.OperationId),
                 cancellationToken);
 
             context.Response.Results = ResponseResult.Create(

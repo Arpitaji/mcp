@@ -15,7 +15,7 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Recovery.Plans;
     Id = "16cb8656-5370-40e0-912e-d4e82c36239c",
     Name = "finalize",
     Title = "Finalize Resilience Recoveryplan",
-    Description = "Completes or finalizes the current recoveryplan operation by validating resource permissions and updating the recoveryplan state. Returns an operation ID for tracking. This does not commit a completed failover. Accepts an optional caller-owned operation ID in canonical GUID format; reuse it for the same logical request, or omit it to generate a new GUID.",
+    Description = "Completes or finalizes the current recoveryplan operation by validating resource permissions and updating the recoveryplan state. Returns an operation ID for tracking. This does not commit a completed failover.",
     OperationPlane = ToolOperationPlane.Control,
     Destructive = false,
     Idempotent = false,
@@ -34,7 +34,6 @@ public sealed class RecoveryPlanFinalizeCommand(
     public override void ValidateOptions(RecoveryPlanFinalizeOptions options, ValidationResult validationResult)
     {
         base.ValidateOptions(options, validationResult);
-        ResilienceManagementOperationIdValidation.Validate(options.OperationId, validationResult);
         RecoveryPlanValidation.ValidateServiceGroup(options.ServiceGroup, validationResult);
         RecoveryPlanValidation.ValidateName(options.RecoveryPlan, validationResult);
     }
@@ -43,7 +42,7 @@ public sealed class RecoveryPlanFinalizeCommand(
     {
         try
         {
-            RecoveryPlanFinalizeResult result = await _resilienceManagementService.FinalizeRecoveryPlanAsync(options.ServiceGroup, options.RecoveryPlan, options.Tenant, ResilienceManagementOperationIdValidation.Normalize(options.OperationId), cancellationToken);
+            RecoveryPlanFinalizeResult result = await _resilienceManagementService.FinalizeRecoveryPlanAsync(options.ServiceGroup, options.RecoveryPlan, options.Tenant, cancellationToken);
             context.Response.Results = ResponseResult.Create(result, ResilienceManagementJsonContext.Default.RecoveryPlanFinalizeResult);
         }
         catch (Exception ex)

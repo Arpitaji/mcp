@@ -6,15 +6,15 @@ using Microsoft.Mcp.Core.Options;
 
 namespace Azure.Mcp.Tools.ResilienceManagement.Options.Goals.Assignments;
 
-public sealed class GoalAssignmentRecommendCapacityOptions
+public sealed class GoalAssignmentRecommendCapacityOptions : IGoalAssignmentOptions
 {
     [Option(Description = ResilienceManagementOptionDescriptions.ServiceGroup)]
     public required string ServiceGroup { get; set; }
 
-    [Option(Description = "The name of the existing resilience goal assignment.")]
+    [Option(Description = ResilienceManagementOptionDescriptions.GoalAssignment)]
     public required string GoalAssignment { get; set; }
 
-    [Option(Description = "Azure resource ARM IDs to assess for zonal capacity recommendations. Omit to assess all eligible resources in the service group. These are underlying Azure resource IDs, not goal resource IDs.")]
+    [Option(Description = "Up to 50 underlying Azure resource ARM IDs to assess. Omit to discover non-resilient resources automatically.")]
     public string[]? ResourceIds { get; set; }
 
     [Option(Description = OptionDescriptions.Tenant)]

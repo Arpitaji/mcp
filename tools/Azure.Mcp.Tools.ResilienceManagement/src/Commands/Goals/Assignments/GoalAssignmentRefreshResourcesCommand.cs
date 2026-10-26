@@ -11,38 +11,41 @@ using Microsoft.Mcp.Core.Models.Command;
 namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Goals.Assignments;
 
 [CommandMetadata(
-    Id = "74e5bf03-9e8c-447a-b71b-0ac831e90bbc",
+    Id = "95a7a71c-337e-4e73-ab77-0429fd46faba",
     Name = "refresh-resources",
-    Title = "Refresh Resilience Goal Assignment Resources",
-    Description = "Refreshes or rediscovers resources for an existing resilience goal assignment in a service group. Scans service group membership again to add newly discovered goal resources, update tracked resources, and remove stale goal resources. Returns Accepted and the service operation ID when supplied; rediscovery continues asynchronously. Does not recommend capacity or explicitly include or exclude resources from goals.",
-    OperationPlane = ToolOperationPlane.Control, Destructive = true, Idempotent = false,
-    OpenWorld = false, ReadOnly = false, Secret = false, LocalRequired = false)]
+    Title = "Rediscover Resilience Goal Resources",
+    Description = """
+        Starts resource rediscovery for an Azure resilience goal assignment using current service-group
+        membership. Use after adding or removing service-group resources to refresh the assignment's tracked
+        members. Does not change resource inclusion or attestation settings directly; use update-resources
+        for those. Returns the service operation ID and Accepted status unless already completed.
+        """,
+    OperationPlane = ToolOperationPlane.Control,
+    Destructive = false, Idempotent = false, OpenWorld = false, ReadOnly = false, Secret = false, LocalRequired = false)]
 public sealed class GoalAssignmentRefreshResourcesCommand(
     ILogger<GoalAssignmentRefreshResourcesCommand> logger,
     IResilienceManagementService service)
-    : AuthenticatedCommand<GoalAssignmentRefreshResourcesOptions, GoalAssignmentOperationResult>
+    : BaseGoalAssignmentCommand<GoalAssignmentRefreshResourcesOptions, GoalAssignmentRefreshResourcesCommand.GoalAssignmentRefreshResourcesCommandResult>
 {
-    public override void ValidateOptions(GoalAssignmentRefreshResourcesOptions options, ValidationResult validationResult)
-    {
-        base.ValidateOptions(options, validationResult);
-        GoalAssignmentResourceValidation.ValidateNames(options.ServiceGroup, options.GoalAssignment, validationResult);
-    }
-
     public override async Task<CommandResponse> ExecuteAsync(CommandContext context, GoalAssignmentRefreshResourcesOptions options, CancellationToken cancellationToken)
     {
         try
         {
-            var result = await service.RefreshGoalAssignmentResourcesAsync(options.ServiceGroup, options.GoalAssignment, options.Tenant, cancellationToken);
-            context.Response.Results = ResponseResult.Create(result, ResilienceManagementJsonContext.Default.GoalAssignmentOperationResult);
+            var operation = await service.RefreshGoalAssignmentResourcesAsync(
+                options.ServiceGroup, options.GoalAssignment, options.Tenant, cancellationToken);
+            context.Response.Results = ResponseResult.Create(
+                new GoalAssignmentRefreshResourcesCommandResult(operation),
+                ResilienceManagementJsonContext.Default.GoalAssignmentRefreshResourcesCommandResult);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Goal assignment resource refresh failed.");
+            logger.LogError(ex, "Error refreshing goal resources. ServiceGroup: {ServiceGroup}, GoalAssignment: {GoalAssignment}.",
+                options.ServiceGroup, options.GoalAssignment);
             HandleException(context, ex);
-            context.Response.Results = null;
         }
+
         return context.Response;
     }
 
-    protected override string GetErrorMessage(Exception ex) => GoalAssignmentResourceValidation.GetErrorMessage(ex);
+    public sealed record GoalAssignmentRefreshResourcesCommandResult(GoalAssignmentOperationResult Operation);
 }

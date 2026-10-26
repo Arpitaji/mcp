@@ -15,7 +15,7 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Drills;
     Id = "9136d433-50df-4e08-bc6a-660881d39421",
     Name = "check-resync-readiness",
     Title = "Check Resilience Drill Resync Readiness",
-    Description = "Checks whether a resilience drill is ready to resync in a service group. Starts a resync and readiness check that resyncs the drill's configuration and evaluates whether the drill is ready, then returns the operation ID for the started check. Use this to run a resync readiness check and confirm drill readiness before running the drill. Accepts an optional caller-owned operation ID in canonical GUID format; reuse it for the same logical request, or omit it to generate a new GUID.",
+    Description = "Checks whether a resilience drill is ready to resync in a service group. Starts a resync and readiness check that resyncs the drill's configuration and evaluates whether the drill is ready, then returns the operation ID for the started check. Use this to run a resync readiness check and confirm drill readiness before running the drill.",
     OperationPlane = ToolOperationPlane.Control,
     Destructive = false,
     Idempotent = false,
@@ -34,7 +34,6 @@ public sealed class DrillCheckResyncReadinessCommand(
     public override void ValidateOptions(DrillCheckResyncReadinessOptions options, ValidationResult validationResult)
     {
         base.ValidateOptions(options, validationResult);
-        ResilienceManagementOperationIdValidation.Validate(options.OperationId, validationResult);
 
         ValidatePathSegment(options.ServiceGroup, "--service-group", validationResult);
         ValidatePathSegment(options.Drill, "--drill", validationResult);
@@ -51,7 +50,6 @@ public sealed class DrillCheckResyncReadinessCommand(
                 options.ServiceGroup,
                 options.Drill,
                 options.Tenant,
-                ResilienceManagementOperationIdValidation.Normalize(options.OperationId),
                 cancellationToken);
 
             context.Response.Results = ResponseResult.Create(

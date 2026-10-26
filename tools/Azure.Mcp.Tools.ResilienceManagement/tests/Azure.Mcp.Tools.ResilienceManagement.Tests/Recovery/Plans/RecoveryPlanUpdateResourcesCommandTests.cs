@@ -95,7 +95,7 @@ public sealed class RecoveryPlanUpdateResourcesCommandTests : CommandUnitTestsBa
             Arg.Any<string>(),
             Arg.Any<UpdateRecoveryResourcesContent>(),
             Arg.Any<string?>(),
-            Arg.Any<string?>(), Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -112,7 +112,7 @@ public sealed class RecoveryPlanUpdateResourcesCommandTests : CommandUnitTestsBa
                 content.ResourcesToUpdate[0].Properties.SelectedProtectionSolutionType == ResourceProtectionSolutionType.AzureNative &&
                 content.ResourcesToUpdate[0].Properties.SelectedProtectionSolutionSetting != null),
             null,
-            Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            Arg.Any<CancellationToken>())
             .Returns(UpdateResult());
 
         var response = await ExecuteCommandAsync(
@@ -127,7 +127,7 @@ public sealed class RecoveryPlanUpdateResourcesCommandTests : CommandUnitTestsBa
             "plan1",
             Arg.Any<UpdateRecoveryResourcesContent>(),
             null,
-            Arg.Any<string?>(), Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public sealed class RecoveryPlanUpdateResourcesCommandTests : CommandUnitTestsBa
                 content.ResourcesToRemove.Count == 1 &&
                 content.ResourcesToRemove[0].ToString() == RecoveryResourceId),
             null,
-            Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            Arg.Any<CancellationToken>())
             .Returns(UpdateResult());
 
         var response = await ExecuteCommandAsync(
@@ -164,7 +164,7 @@ public sealed class RecoveryPlanUpdateResourcesCommandTests : CommandUnitTestsBa
                 content.ResourcesToRemove.Count == 1 &&
                 content.ResourcesToRemove[0].ToString() == OtherRecoveryResourceId),
             null,
-            Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            Arg.Any<CancellationToken>())
             .Returns(UpdateResult());
 
         var response = await ExecuteCommandAsync(
@@ -179,7 +179,7 @@ public sealed class RecoveryPlanUpdateResourcesCommandTests : CommandUnitTestsBa
             "plan1",
             Arg.Any<UpdateRecoveryResourcesContent>(),
             null,
-            Arg.Any<string?>(), Arg.Any<CancellationToken>());
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -205,7 +205,7 @@ public sealed class RecoveryPlanUpdateResourcesCommandTests : CommandUnitTestsBa
             Arg.Any<string>(),
             Arg.Is<UpdateRecoveryResourcesContent>(content => content.ResourcesToUpdate[0].Properties.InclusionState == null),
             Arg.Any<string?>(),
-            Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            Arg.Any<CancellationToken>())
             .Returns(UpdateResult());
 
         var response = await ExecuteCommandAsync(
@@ -226,7 +226,7 @@ public sealed class RecoveryPlanUpdateResourcesCommandTests : CommandUnitTestsBa
                 content.ResourcesToUpdate.Count == 1 &&
                 content.ResourcesToUpdate[0].Properties.RecoveryResourceUniqueId == "12345678-9012-3456-7890-123456789012"),
             Arg.Any<string?>(),
-            Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            Arg.Any<CancellationToken>())
             .Returns(UpdateResult());
 
         var response = await ExecuteCommandAsync(
@@ -301,7 +301,7 @@ public sealed class RecoveryPlanUpdateResourcesCommandTests : CommandUnitTestsBa
             Arg.Any<string>(),
             Arg.Any<UpdateRecoveryResourcesContent>(),
             Arg.Any<string?>(),
-            Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            Arg.Any<CancellationToken>())
             .ThrowsAsync(new RequestFailedException((int)HttpStatusCode.BadRequest, "provider details"));
 
         var response = await ExecuteCommandAsync(
@@ -315,6 +315,28 @@ public sealed class RecoveryPlanUpdateResourcesCommandTests : CommandUnitTestsBa
     }
 
     [Fact]
+    public async Task ExecuteAsync_ReportsRejectedLongRunningOperationAsBadRequest()
+    {
+        // A failed LRO surfaces the 200 status of its operation-status poll together with the service error code.
+        Service.UpdateRecoveryPlanResourcesAsync(
+            Arg.Any<string>(),
+            Arg.Any<string>(),
+            Arg.Any<UpdateRecoveryResourcesContent>(),
+            Arg.Any<string?>(),
+            Arg.Any<CancellationToken>())
+            .ThrowsAsync(new RequestFailedException((int)HttpStatusCode.OK, "provider details", "RHROUserErrorUpdateResourcesOperationFailed", null));
+
+        var response = await ExecuteCommandAsync(
+            "--service-group", "sg1",
+            "--recoveryplan", "plan1",
+            "--resources-to-update", ResourcesToUpdate);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.Status);
+        Assert.Contains("rejected (RHROUserErrorUpdateResourcesOperationFailed)", response.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("provider details", response.Message);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_MapsTimeoutExceptionToGatewayTimeout()
     {
         Service.UpdateRecoveryPlanResourcesAsync(
@@ -322,7 +344,7 @@ public sealed class RecoveryPlanUpdateResourcesCommandTests : CommandUnitTestsBa
             Arg.Any<string>(),
             Arg.Any<UpdateRecoveryResourcesContent>(),
             Arg.Any<string?>(),
-            Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            Arg.Any<CancellationToken>())
             .ThrowsAsync(new TimeoutException("Internal timeout details"));
 
         var response = await ExecuteCommandAsync(
@@ -335,5 +357,5 @@ public sealed class RecoveryPlanUpdateResourcesCommandTests : CommandUnitTestsBa
         Assert.DoesNotContain("Internal timeout details", response.Message);
     }
 
-    private static RecoveryPlanUpdateResourcesResult UpdateResult() => new("11111111-1111-1111-1111-111111111111", []);
+    private static RecoveryPlanUpdateResourcesResult UpdateResult() => new([]);
 }

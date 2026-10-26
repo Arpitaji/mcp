@@ -16,7 +16,7 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Recovery.Jobs;
     Id = "e84ec6e8-94ad-4e09-af25-0fd323238f29",
     Name = "retry",
     Title = "Retry Resilience Recovery Job",
-    Description = "Retries or reruns a failed resilience recovery job for a recoveryplan in an Azure service group. Use when asked to retry a failed recovery job. This destructive operation returns after the retry is accepted with an operation ID. Use recoveryjob get to monitor the existing job. The recovery job must currently be Failed. Accepts an optional caller-owned operation ID in canonical GUID format; reuse it for the same logical request, or omit it to generate a new GUID.",
+    Description = "Retries or reruns a failed resilience recovery job for a recoveryplan in an Azure service group. Use when asked to retry a failed recovery job. This destructive operation returns after the retry is accepted with an operation ID. Use recoveryjob get to monitor the existing job. The recovery job must currently be Failed.",
     OperationPlane = ToolOperationPlane.Control,
     Destructive = true,
     Idempotent = false,
@@ -35,7 +35,6 @@ public sealed class RecoveryJobRetryCommand(
     public override void ValidateOptions(RecoveryJobRetryOptions options, ValidationResult validationResult)
     {
         base.ValidateOptions(options, validationResult);
-        ResilienceManagementOperationIdValidation.Validate(options.OperationId, validationResult);
         RecoveryPlanValidation.ValidateServiceGroup(options.ServiceGroup, validationResult);
         RecoveryPlanValidation.ValidateName(options.RecoveryPlan, validationResult);
         RecoveryJobValidation.ValidateName(options.RecoveryJob, validationResult);
@@ -45,7 +44,7 @@ public sealed class RecoveryJobRetryCommand(
     {
         try
         {
-            RecoveryJobRetryResult result = await _resilienceManagementService.RetryRecoveryJobAsync(options.ServiceGroup, options.RecoveryPlan, options.RecoveryJob, options.Tenant, ResilienceManagementOperationIdValidation.Normalize(options.OperationId), cancellationToken);
+            RecoveryJobRetryResult result = await _resilienceManagementService.RetryRecoveryJobAsync(options.ServiceGroup, options.RecoveryPlan, options.RecoveryJob, options.Tenant, cancellationToken);
             context.Response.Results = ResponseResult.Create(result, ResilienceManagementJsonContext.Default.RecoveryJobRetryResult);
         }
         catch (Exception ex)

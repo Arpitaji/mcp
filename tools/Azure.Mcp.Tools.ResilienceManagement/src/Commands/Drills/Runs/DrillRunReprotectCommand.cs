@@ -2,8 +2,6 @@
 // Licensed under the MIT License.
 
 using System.Net;
-using Azure.Core;
-using Azure.Mcp.Tools.ResilienceManagement.Models;
 using Azure.Mcp.Tools.ResilienceManagement.Options.Drills.Runs;
 using Azure.Mcp.Tools.ResilienceManagement.Services;
 using Microsoft.Extensions.Logging;
@@ -16,7 +14,7 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Drills.Runs;
     Id = "a331e69f-4669-40de-97ad-10a1cebe4b54",
     Name = "reprotect",
     Title = "Reprotect a Resilience Drill Run",
-    Description = "Initiates reprotection for failed-over resources in a resilience drill run. Accepts an optional caller-owned operation ID in canonical GUID format; reuse it for the same logical request, or omit it to generate a new GUID.",
+    Description = "Initiates reprotection for failed-over resources in a resilience drill run. Optionally select recovery-resource ARM IDs in the same service group; omit the selection to reprotect all qualified resources.",
     OperationPlane = ToolOperationPlane.Control,
     Destructive = true,
     Idempotent = false,
@@ -33,42 +31,25 @@ public sealed class DrillRunReprotectCommand(ILogger<DrillRunReprotectCommand> l
     public override void ValidateOptions(DrillRunReprotectOptions options, ValidationResult validationResult)
     {
         base.ValidateOptions(options, validationResult);
-        ResilienceManagementOperationIdValidation.Validate(options.OperationId, validationResult);
         ValidatePathSegment(options.ServiceGroup, "service group", validationResult);
         ValidatePathSegment(options.Drill, "drill", validationResult);
         ValidatePathSegment(options.DrillRun, "drill run", validationResult);
-        if (options.SelectedResourceIds?.Any(resourceId =>
-                !DrillRunSelectedResourceValidation.IsSupportedResourceId(
-                    resourceId,
-                    options.ServiceGroup,
-                    options.Drill)) == true)
-        {
-            validationResult.Errors.Add("Each selected resource ID must be a full drill-resource ID under the requested drill or a recovery-resource ID under a recovery plan in the requested service group, with a GUID resource name.");
-        }
+        DrillActionValidation.ValidateSelectedResourceIds(options.SelectedResourceIds, options.ServiceGroup, validationResult);
     }
 
     public override async Task<CommandResponse> ExecuteAsync(CommandContext context, DrillRunReprotectOptions options, CancellationToken cancellationToken)
     {
         try
         {
-            DrillRunReprotectResult reprotect = await _resilienceManagementService.ReprotectDrillRunAsync(
+            string operationId = await _resilienceManagementService.ReprotectDrillRunAsync(
                 options.ServiceGroup,
                 options.Drill,
                 options.DrillRun,
                 options.SelectedResourceIds,
                 options.Tenant,
-                ResilienceManagementOperationIdValidation.Normalize(options.OperationId),
                 cancellationToken);
 
-            var result = new DrillRunReprotectCommandResult(
-                reprotect.OperationId,
-                options.DrillRun,
-                Accepted: !reprotect.HasCompleted,
-                reprotect.Status,
-                reprotect.HasCompleted,
-                reprotect.HttpStatus,
-                reprotect.LocationUri,
-                reprotect.AzureAsyncOperationUri);
+            var result = new DrillRunReprotectCommandResult(operationId, options.DrillRun, Accepted: true);
             context.Response.Results = ResponseResult.Create(
                 result,
                 ResilienceManagementJsonContext.Default.DrillRunReprotectCommandResult);
@@ -105,13 +86,5 @@ public sealed class DrillRunReprotectCommand(ILogger<DrillRunReprotectCommand> l
         }
     }
 
-    public sealed record DrillRunReprotectCommandResult(
-        string OperationId,
-        string DrillRun,
-        bool Accepted,
-        string Status,
-        bool HasCompleted,
-        int HttpStatus,
-        string? LocationUri,
-        string? AzureAsyncOperationUri);
+    public sealed record DrillRunReprotectCommandResult(string OperationId, string DrillRun, bool Accepted);
 }

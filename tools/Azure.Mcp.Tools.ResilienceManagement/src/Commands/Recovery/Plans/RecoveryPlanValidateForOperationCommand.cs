@@ -23,7 +23,6 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Recovery.Plans;
         command directly with that operation; ask the user only when it is omitted. For operation-level Failover
         validation, use this command rather than validateforfailover, which evaluates per-resource qualification
         using source locations or resource IDs. This command does not execute the recovery operation.
-        Accepts an optional caller-owned operation ID in canonical GUID format; reuse it for the same logical request, or omit it to generate a new GUID.
         """,
     OperationPlane = ToolOperationPlane.Control,
     Destructive = false,
@@ -43,7 +42,6 @@ public sealed class RecoveryPlanValidateForOperationCommand(
     public override void ValidateOptions(RecoveryPlanValidateForOperationOptions options, ValidationResult validationResult)
     {
         base.ValidateOptions(options, validationResult);
-        ResilienceManagementOperationIdValidation.Validate(options.OperationId, validationResult);
         RecoveryPlanValidation.ValidateServiceGroup(options.ServiceGroup, validationResult);
         RecoveryPlanValidation.ValidateName(options.RecoveryPlan, validationResult);
 
@@ -57,13 +55,12 @@ public sealed class RecoveryPlanValidateForOperationCommand(
     {
         try
         {
-            _ = TryGetOperationName(options.OperationName, out RecoveryOperationNames operationName);
+            _ = TryGetOperationName(options.OperationName, out RecoveryOperationName operationName);
             RecoveryPlanValidateForOperationResult result = await _resilienceManagementService.ValidateRecoveryPlanForOperationAsync(
                 options.ServiceGroup,
                 options.RecoveryPlan,
                 operationName,
                 options.Tenant,
-                ResilienceManagementOperationIdValidation.Normalize(options.OperationId),
                 cancellationToken);
 
             context.Response.Results = ResponseResult.Create(
@@ -81,35 +78,35 @@ public sealed class RecoveryPlanValidateForOperationCommand(
         return context.Response;
     }
 
-    private static bool TryGetOperationName(string operationName, out RecoveryOperationNames value)
+    private static bool TryGetOperationName(string operationName, out RecoveryOperationName value)
     {
         if (string.Equals(operationName, "Failover", StringComparison.OrdinalIgnoreCase))
         {
-            value = RecoveryOperationNames.Failover;
+            value = RecoveryOperationName.Failover;
             return true;
         }
 
         if (string.Equals(operationName, "FailoverCommit", StringComparison.OrdinalIgnoreCase))
         {
-            value = RecoveryOperationNames.FailoverCommit;
+            value = RecoveryOperationName.FailoverCommit;
             return true;
         }
 
         if (string.Equals(operationName, "Reprotect", StringComparison.OrdinalIgnoreCase))
         {
-            value = RecoveryOperationNames.Reprotect;
+            value = RecoveryOperationName.Reprotect;
             return true;
         }
 
         if (string.Equals(operationName, "TestFailover", StringComparison.OrdinalIgnoreCase))
         {
-            value = RecoveryOperationNames.TestFailover;
+            value = RecoveryOperationName.TestFailover;
             return true;
         }
 
         if (string.Equals(operationName, "TestFailoverCleanup", StringComparison.OrdinalIgnoreCase))
         {
-            value = RecoveryOperationNames.TestFailoverCleanup;
+            value = RecoveryOperationName.TestFailoverCleanup;
             return true;
         }
 

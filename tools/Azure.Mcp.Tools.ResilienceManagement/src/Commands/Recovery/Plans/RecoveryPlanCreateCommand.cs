@@ -20,18 +20,18 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Recovery.Plans;
     Name = "create",
     Title = "Create or Update Resilience Recoveryplan",
     Description = """
-        Creates a new Zonal or Regional resilience recoveryplan in an Azure service group or updates an existing plan's identity,
+        Creates a new Zonal resilience recoveryplan in an Azure service group or updates an existing plan's identity,
         recovery group structure, and recovery group pre/post actions. Use this command to split a plan into additional
         recovery groups or add manual and Azure Automation runbook actions; use recoveryplan resource update instead for
         recovery resource membership and protection settings.
         Creation requires a plan description and a customer-selected SystemAssigned, UserAssigned, or SystemAndUserAssigned
-        managed identity. Do not assume a plan or identity type; ask the user to choose each one when omitted. Updates can switch
-        identity types, but cannot replace an existing user-assigned identity with a different one. Additional recovery groups
-        can be replaced with a JSON array containing sequential order IDs, descriptions, optional group GUIDs, and optional
-        pre/post actions; they are preserved when omitted. Default group pre/post actions can also be replaced. Actions support
-        manual steps and Azure Automation runbook scripts. Updates preserve the default recovery group ID and omitted plan,
-        group, and action settings. Plan descriptions must be 5 to 50 characters. A user-assigned identity update must include
-        the existing identity's full resource ID; ask for it when omitted.
+        managed identity. Do not assume an identity type; ask the user to choose one when omitted. Updates can switch identity
+        types, but cannot replace an existing user-assigned identity with a different one. Additional recovery groups can be
+        replaced with a JSON array containing sequential order IDs, descriptions, optional group GUIDs, and optional pre/post
+        actions; they are preserved when omitted. Default group pre/post actions can also be replaced. Actions support manual
+        steps and Azure Automation runbook scripts. Updates preserve the default recovery group ID and omitted plan, group,
+        and action settings. Plan descriptions must be 5 to 50 characters. A user-assigned identity update must include the
+        existing identity's full resource ID; ask for it when omitted.
         """,
     OperationPlane = ToolOperationPlane.Control,
     Destructive = true,
@@ -51,9 +51,9 @@ public sealed class RecoveryPlanCreateCommand(ILogger<RecoveryPlanCreateCommand>
     {
         base.ValidateOptions(options, validationResult);
 
-        if (options.PlanType is not (Models.RecoveryPlanKind.Zonal or Models.RecoveryPlanKind.Regional))
+        if (options.PlanType != Models.RecoveryPlanKind.Zonal)
         {
-            validationResult.Errors.Add("The recoveryplan type must be Zonal or Regional.");
+            validationResult.Errors.Add("Only Zonal recovery plans are currently supported.");
         }
 
         RecoveryPlanValidation.ValidateServiceGroup(options.ServiceGroup, validationResult);
@@ -81,13 +81,19 @@ public sealed class RecoveryPlanCreateCommand(ILogger<RecoveryPlanCreateCommand>
             validationResult.AddError(ex.Message, "Invalid recovery plan configuration.");
         }
 
-        if (options.IdentityType != Models.RecoveryPlanIdentityKind.SystemAssigned && string.IsNullOrWhiteSpace(options.UserAssignedIdentity))
+        if (options.DefaultGroupUniqueId is not null && !Guid.TryParse(options.DefaultGroupUniqueId, out _))
+        {
+            validationResult.Errors.Add("--default-group-unique-id must be a GUID.");
+        }
+
+        bool usesUserAssignedIdentity = options.IdentityType is Models.RecoveryPlanIdentityKind.UserAssigned or Models.RecoveryPlanIdentityKind.SystemAndUserAssigned;
+        if (usesUserAssignedIdentity && string.IsNullOrWhiteSpace(options.UserAssignedIdentity))
         {
             validationResult.Errors.Add("--user-assigned-identity is required when --identity-type is UserAssigned or SystemAndUserAssigned.");
         }
-        else if (options.IdentityType == Models.RecoveryPlanIdentityKind.SystemAssigned && !string.IsNullOrWhiteSpace(options.UserAssignedIdentity))
+        else if (!usesUserAssignedIdentity && !string.IsNullOrWhiteSpace(options.UserAssignedIdentity))
         {
-            validationResult.Errors.Add("--user-assigned-identity is not allowed when --identity-type is SystemAssigned.");
+            validationResult.Errors.Add("--user-assigned-identity is not allowed when --identity-type is SystemAssigned or None.");
         }
         else if (!string.IsNullOrWhiteSpace(options.UserAssignedIdentity))
         {
@@ -121,6 +127,7 @@ public sealed class RecoveryPlanCreateCommand(ILogger<RecoveryPlanCreateCommand>
                 additionalGroups: additionalGroups,
                 defaultGroupPreActions: defaultGroupPreActions,
                 defaultGroupPostActions: defaultGroupPostActions,
+                defaultGroupUniqueId: options.DefaultGroupUniqueId is null ? null : Guid.Parse(options.DefaultGroupUniqueId).ToString(),
                 cancellationToken: cancellationToken);
 
             context.Response.Results = ResponseResult.Create(
@@ -290,6 +297,8 @@ public sealed class RecoveryPlanCreateCommand(ILogger<RecoveryPlanCreateCommand>
 
             string? actionResourceId = null;
             IReadOnlyDictionary<string, string>? parameters = null;
+            string? associatedIdentityType = null;
+            string? associatedUserAssignedIdentity = null;
             if (type == RecoveryPlanGroupActionKind.CustomRunbook)
             {
                 if (!action.TryGetProperty("actionResourceId", out JsonElement actionResourceIdElement) ||
@@ -302,6 +311,11 @@ public sealed class RecoveryPlanCreateCommand(ILogger<RecoveryPlanCreateCommand>
                 actionResourceId = actionResourceIdElement.GetString()!;
                 ValidateRunbookResourceId(actionResourceId, fieldName);
                 parameters = ParseActionParameters(action, fieldName);
+                (associatedIdentityType, associatedUserAssignedIdentity) = ParseActionIdentity(action, fieldName);
+            }
+            else if (action.TryGetProperty("associatedIdentity", out JsonElement manualIdentity) && manualIdentity.ValueKind != JsonValueKind.Null)
+            {
+                throw new ArgumentException($"Only CustomRunbook {fieldName} actions support associatedIdentity.");
             }
 
             result.Add(new RecoveryPlanGroupActionInput(
@@ -310,10 +324,49 @@ public sealed class RecoveryPlanCreateCommand(ILogger<RecoveryPlanCreateCommand>
                 description,
                 timeoutInMinutes,
                 actionResourceId,
-                parameters));
+                parameters,
+                associatedIdentityType,
+                associatedUserAssignedIdentity));
         }
 
         return result;
+    }
+
+    // Optional identity the runbook runs as: {"type": "...", "userAssignedIdentity": "<ARM ID>"}.
+    private static (string? Type, string? UserAssignedIdentity) ParseActionIdentity(JsonElement action, string fieldName)
+    {
+        if (!action.TryGetProperty("associatedIdentity", out JsonElement identity) || identity.ValueKind == JsonValueKind.Null)
+        {
+            return (null, null);
+        }
+
+        if (identity.ValueKind != JsonValueKind.Object ||
+            !identity.TryGetProperty("type", out JsonElement typeElement) ||
+            typeElement.ValueKind != JsonValueKind.String ||
+            typeElement.GetString() is not ("None" or "SystemAssigned" or "UserAssigned" or "SystemAssigned, UserAssigned") ||
+            identity.EnumerateObject().Any(property => property.Name is not ("type" or "userAssignedIdentity")))
+        {
+            throw new ArgumentException($"Each CustomRunbook {fieldName} action associatedIdentity must be an object with type (None, SystemAssigned, UserAssigned, or SystemAssigned, UserAssigned) and optional userAssignedIdentity.");
+        }
+
+        string type = typeElement.GetString()!;
+        string? userAssignedIdentity = null;
+        if (identity.TryGetProperty("userAssignedIdentity", out JsonElement userAssignedElement) && userAssignedElement.ValueKind != JsonValueKind.Null)
+        {
+            if (userAssignedElement.ValueKind != JsonValueKind.String)
+            {
+                throw new ArgumentException($"Each CustomRunbook {fieldName} action associatedIdentity.userAssignedIdentity must be a string.");
+            }
+
+            userAssignedIdentity = ResilienceManagementService.ParseUserAssignedIdentityResourceId(userAssignedElement.GetString()!).ToString();
+        }
+
+        if (type.Contains("UserAssigned", StringComparison.Ordinal) != (userAssignedIdentity is not null))
+        {
+            throw new ArgumentException($"Each CustomRunbook {fieldName} action associatedIdentity requires userAssignedIdentity exactly when type includes UserAssigned.");
+        }
+
+        return (type, userAssignedIdentity);
     }
 
     private static bool IsValidActionName(string? name)

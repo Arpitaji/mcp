@@ -29,10 +29,10 @@ public class ResilienceManagementSetup : IAreaSetup
     public void ConfigureServices(IServiceCollection services)
     {
         services.AddSingleton<IResilienceManagementService, ResilienceManagementService>();
-        services.AddSingleton<IGoalAssignmentCreateService, GoalAssignmentCreateService>();
 
         services.AddSingleton<GoalAssignmentGetCommand>();
         services.AddSingleton<GoalAssignmentCreateCommand>();
+        services.AddSingleton<GoalAssignmentUpdateCommand>();
         services.AddSingleton<GoalAssignmentDeleteCommand>();
         services.AddSingleton<GoalAssignmentRecommendCapacityCommand>();
         services.AddSingleton<GoalAssignmentRefreshResourcesCommand>();
@@ -76,6 +76,8 @@ public class ResilienceManagementSetup : IAreaSetup
         services.AddSingleton<DrillRunResumeCommand>();
         services.AddSingleton<DrillRunMarkCompleteCommand>();
         services.AddSingleton<DrillRunReprotectCommand>();
+        services.AddSingleton<DrillRunGenerateReportCommand>();
+        services.AddSingleton<DrillRunGetReportDownloadUrlCommand>();
         services.AddSingleton<DrillRunResourceGetCommand>();
     }
 
@@ -91,7 +93,7 @@ public class ResilienceManagementSetup : IAreaSetup
         resilienceManagement.AddSubGroup(goals);
 
         // Create assignment subgroup under goal
-        var assignments = new CommandGroup("assignment", "Resilience goal assignment operations - Get assignments, recommend capacity, rediscover resources, and update goal resource participation.");
+        var assignments = new CommandGroup("assignment", "Resilience goal assignments - Get, create, update, delete, recommend capacity, rediscover resources, and update resource participation for Azure service groups.");
         goals.AddSubGroup(assignments);
 
         // Create resource subgroup under goal
@@ -101,6 +103,7 @@ public class ResilienceManagementSetup : IAreaSetup
         // Register commands
         assignments.AddCommand<GoalAssignmentGetCommand>(serviceProvider);
         assignments.AddCommand<GoalAssignmentCreateCommand>(serviceProvider);
+        assignments.AddCommand<GoalAssignmentUpdateCommand>(serviceProvider);
         assignments.AddCommand<GoalAssignmentDeleteCommand>(serviceProvider);
         assignments.AddCommand<GoalAssignmentRecommendCapacityCommand>(serviceProvider);
         assignments.AddCommand<GoalAssignmentRefreshResourcesCommand>(serviceProvider);
@@ -180,7 +183,7 @@ public class ResilienceManagementSetup : IAreaSetup
         drillResources.AddCommand<DrillAddOrUpdateResourcesCommand>(serviceProvider);
 
         // Create run subgroup under drill
-        var drillRuns = new CommandGroup("run", "Resilience drill run operations - Commands for listing and getting the runs of a resilience drill.");
+        var drillRuns = new CommandGroup("run", "Resilience drill run operations - Commands for listing and getting the runs of a resilience drill, generating drill run reports, and getting report download URLs.");
         drills.AddSubGroup(drillRuns);
 
         drillRuns.AddCommand<DrillRunGetCommand>(serviceProvider);
@@ -189,6 +192,8 @@ public class ResilienceManagementSetup : IAreaSetup
         drillRuns.AddCommand<DrillRunResumeCommand>(serviceProvider);
         drillRuns.AddCommand<DrillRunMarkCompleteCommand>(serviceProvider);
         drillRuns.AddCommand<DrillRunReprotectCommand>(serviceProvider);
+        drillRuns.AddCommand<DrillRunGenerateReportCommand>(serviceProvider);
+        drillRuns.AddCommand<DrillRunGetReportDownloadUrlCommand>(serviceProvider);
 
         // Create resource subgroup under drill run
         var drillRunResources = new CommandGroup("resource", "Resilience drill run resource operations - Commands for listing and getting the resources (targets) of a resilience drill run.");

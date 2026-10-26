@@ -6,7 +6,7 @@ using Microsoft.Mcp.Core.Options;
 
 namespace Azure.Mcp.Tools.ResilienceManagement.Options.Recovery.Plans;
 
-public sealed class RecoveryPlanReprotectOptions : ResilienceManagementOperationOptions
+public sealed class RecoveryPlanReprotectOptions
 {
     [Option(Description = ResilienceManagementOptionDescriptions.ServiceGroup)]
     public required string ServiceGroup { get; set; }
