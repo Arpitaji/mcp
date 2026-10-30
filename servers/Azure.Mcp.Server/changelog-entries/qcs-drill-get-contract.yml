@@ -1,3 +1,3 @@
 changes:
   - section: Bugs Fixed
-    description: "Use the current Resilience Management contract for Drill, Goal, and Recovery requests, prevent automatic replay of state-changing actions, enforce lifecycle-specific Drill resource selections, and preserve Goal service-level resources and errors."
+    description: "Use the current Resilience Management contract for Drill, Goal, and Recovery requests, advertise required Goal resiliency flags as non-nullable booleans while retaining explicit-input validation, prevent automatic replay of state-changing actions, enforce lifecycle-specific Drill resource selections, and preserve Goal service-level resources and errors."

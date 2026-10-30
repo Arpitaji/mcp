@@ -38,6 +38,12 @@ public sealed class OptionBinderTests
         public bool? Debug { get; set; }
     }
 
+    private sealed class RequiredNullableBoolOptions
+    {
+        [Option(Description = "Whether the operation is enabled.")]
+        public required bool? Enabled { get; set; }
+    }
+
     private sealed class ArrayOptions
     {
         [Option(Description = "The tags associated with the item.")]
@@ -371,6 +377,37 @@ public sealed class OptionBinderTests
 
         Assert.True(options.Verbose);
         Assert.Equal(false, options.Debug);
+    }
+
+    [Theory]
+    [InlineData("--enabled true", true)]
+    [InlineData("--enabled false", false)]
+    public void BindOptions_RequiredNullableBool_AdvertisesBooleanAndBindsExplicitValue(
+        string arguments,
+        bool expected)
+    {
+        var command = new Command("test");
+        OptionBinder.RegisterOptions<RequiredNullableBoolOptions>(command);
+
+        var enabled = Assert.Single(command.Options);
+        Assert.True(enabled.Required);
+        Assert.Equal(typeof(bool), enabled.ValueType);
+
+        var options = OptionBinder.BindOptions<RequiredNullableBoolOptions>(command.Parse(arguments));
+
+        Assert.Equal(expected, options.Enabled);
+    }
+
+    [Fact]
+    public void BindOptions_RequiredNullableBool_RejectsOmission()
+    {
+        var command = new Command("test");
+        OptionBinder.RegisterOptions<RequiredNullableBoolOptions>(command);
+
+        var exception = Assert.Throws<CommandValidationException>(
+            () => OptionBinder.BindOptions<RequiredNullableBoolOptions>(command.Parse("")));
+
+        Assert.Contains("--enabled", Assert.IsAssignableFrom<IEnumerable<string>>(exception.MissingOptions));
     }
 
     [Fact]

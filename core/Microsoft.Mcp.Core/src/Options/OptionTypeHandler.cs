@@ -141,6 +141,8 @@ public sealed class OptionTypeHandler
                 return CreateOptionAndBinderHelper<bool[]?>(descriptor);
             if (isMulti)
                 return CreateOptionAndBinderHelper<bool[]>(descriptor);
+            if (isNullable && descriptor.Required)
+                return CreateRequiredNullableBooleanOptionAndBinder(descriptor);
             if (isNullable)
                 return CreateOptionAndBinderHelper<bool?>(descriptor);
             return CreateOptionAndBinderHelper<bool>(descriptor);
@@ -322,6 +324,16 @@ public sealed class OptionTypeHandler
             option.Validators.Add(emptyOrWhiteSpaceValidator);
         }
         return (option, parseResult => parseResult.CommandResult.GetValueOrDefault(option));
+    }
+
+    private static (Option, Func<ParseResult, object?>) CreateRequiredNullableBooleanOptionAndBinder(
+        OptionDescriptor descriptor)
+    {
+        var option = new Option<bool>($"--{descriptor.Name}", [.. descriptor.Aliases.Select(a => $"--{a}")]);
+        return (option, parseResult =>
+            parseResult.CommandResult.HasOptionResult(option)
+                ? parseResult.CommandResult.GetValueOrDefault(option)
+                : null);
     }
 
     private static ArgumentArity GetArgumentArity(Type type, bool isMulti)

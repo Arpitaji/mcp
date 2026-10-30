@@ -43,6 +43,8 @@ public sealed class GoalAssignmentCreateCommandTests : GoalAssignmentCommandTest
     [Theory]
     [InlineData("--service-group sg1 --goal-assignment assignment1")]
     [InlineData("--service-group sg1 --goal-assignment assignment1 --require-zonal-resiliency invalid")]
+    [InlineData("--service-group sg1 --goal-assignment assignment1 --require-zonal-resiliency true")]
+    [InlineData("--service-group sg1 --goal-assignment assignment1 --require-regional-resiliency true")]
     [InlineData("--service-group sg1 --goal-assignment assignment1 --require-zonal-resiliency false --require-regional-resiliency false")]
     [InlineData("--service-group sg1 --goal-assignment assignment1 --require-zonal-resiliency true --require-regional-resiliency true")]
     [InlineData("--service-group sg1 --goal-assignment assignment1 --require-zonal-resiliency false --require-regional-resiliency true")]
@@ -55,6 +57,22 @@ public sealed class GoalAssignmentCreateCommandTests : GoalAssignmentCommandTest
 
         Assert.Equal(HttpStatusCode.BadRequest, response.Status);
         Assert.Empty(Service.ReceivedCalls());
+    }
+
+    [Fact]
+    public void Constructor_AdvertisesRequiredNonNullableBooleanIntent()
+    {
+        var zonal = Assert.Single(
+            CommandDefinition.Options,
+            option => option.Name == "--require-zonal-resiliency");
+        var regional = Assert.Single(
+            CommandDefinition.Options,
+            option => option.Name == "--require-regional-resiliency");
+
+        Assert.True(zonal.Required);
+        Assert.Equal(typeof(bool), zonal.ValueType);
+        Assert.True(regional.Required);
+        Assert.Equal(typeof(bool), regional.ValueType);
     }
 
     [Fact]
