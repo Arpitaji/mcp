@@ -16,7 +16,7 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Drills;
     Id = "90da933a-bbf3-48ec-a03b-5db38e0c0a3b",
     Name = "validate-for-execution",
     Title = "Validate Resilience Drill For Execution",
-    Description = "Validates a resilience drill for execution from source locations in its service group. Preflight drill readiness without starting fault injection, or validate Reprotect without sources. Otherwise source locations are required. Optionally select Failover, Reprotect, FailoverReverse, or ReprotectReverse. Returns a validation operation ID.",
+    Description = "Validates a resilience drill for execution from source locations in its service group. Preflight drill readiness without starting fault injection, or validate Reprotect without sources. Otherwise source locations are required. Optionally select Failover, Reprotect, FailoverReverse, or ReprotectReverse. Returns a validation operation ID. Accepts an optional caller-owned operation ID in canonical GUID format; reuse it for the same logical request, or omit it to generate a new GUID.",
     OperationPlane = ToolOperationPlane.Control,
     Destructive = false,
     Idempotent = false,
@@ -35,6 +35,7 @@ public sealed class DrillValidateForExecutionCommand(
     public override void ValidateOptions(DrillValidateForExecutionOptions options, ValidationResult validationResult)
     {
         base.ValidateOptions(options, validationResult);
+        ResilienceManagementOperationIdValidation.Validate(options.OperationId, validationResult);
 
         ValidatePathSegment(options.ServiceGroup, "--service-group", validationResult);
         ValidatePathSegment(options.Drill, "--drill", validationResult);
@@ -72,6 +73,7 @@ public sealed class DrillValidateForExecutionCommand(
                 options.SourceLocations,
                 operationName,
                 options.Tenant,
+                ResilienceManagementOperationIdValidation.Normalize(options.OperationId),
                 cancellationToken);
 
             context.Response.Results = ResponseResult.Create(

@@ -14,8 +14,17 @@ public sealed class GoalAssignmentCreateOptions : IGoalAssignmentOptions
     [Option(Description = ResilienceManagementOptionDescriptions.GoalAssignment)]
     public required string GoalAssignment { get; set; }
 
-    [Option(Description = "The Goals service requires zonal resiliency for new assignments. Specify true explicitly.")]
+    [Option(Description = "Whether the goal requires zonal resiliency. Exactly one of this option and --require-regional-resiliency must be true.")]
     public required bool? RequireZonalResiliency { get; set; }
+
+    [Option(Description = "Whether the goal requires regional resiliency. Exactly one of this option and --require-zonal-resiliency must be true.")]
+    public required bool? RequireRegionalResiliency { get; set; }
+
+    [Option(Description = "ISO 8601 target recovery point objective. Required for a Regional goal and rejected for a Zonal goal.")]
+    public string? RegionalRecoveryPointObjective { get; set; }
+
+    [Option(Description = "ISO 8601 target recovery time objective. Required for a Regional goal and rejected for a Zonal goal.")]
+    public string? RegionalRecoveryTimeObjective { get; set; }
 
     [Option(Description = "ARM IDs of service-level indicator resources associated with the assignment. Omit for no service-level targets.")]
     public string[]? ServiceLevelResourceIds { get; set; }

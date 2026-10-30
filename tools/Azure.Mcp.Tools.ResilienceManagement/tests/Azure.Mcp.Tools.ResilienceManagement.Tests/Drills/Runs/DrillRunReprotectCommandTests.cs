@@ -24,7 +24,8 @@ public sealed class DrillRunReprotectCommandTests : CommandUnitTestsBase<DrillRu
     {
         const string id = "/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.AzureResilienceManagement/recoveryPlans/plan1/recoveryResources/22222222-2222-2222-2222-222222222222";
         Service.ReprotectDrillRunAsync(ServiceGroup, Drill, DrillRun,
-            Arg.Is<IReadOnlyList<string>>(ids => ids.SequenceEqual(new[] { id })), null, Arg.Any<CancellationToken>()).Returns(OperationId);
+            Arg.Is<IReadOnlyList<string>>(ids => ids.SequenceEqual(new[] { id })), null, null,
+            Arg.Any<CancellationToken>()).Returns(OperationId);
 
         var response = await ExecuteCommandAsync("--service-group", ServiceGroup, "--drill", Drill,
             "--drill-run", DrillRun, "--selected-resource-ids", id);
@@ -99,7 +100,7 @@ public sealed class DrillRunReprotectCommandTests : CommandUnitTestsBase<DrillRu
             Arg.Any<string>(),
             Arg.Any<IReadOnlyList<string>?>(),
             Arg.Any<string?>(),
-            Arg.Any<CancellationToken>());
+            Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -111,7 +112,7 @@ public sealed class DrillRunReprotectCommandTests : CommandUnitTestsBase<DrillRu
             DrillRun,
             null,
             null,
-            Arg.Any<CancellationToken>())
+            Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(OperationId);
 
         var response = await ExecuteCommandAsync(
@@ -129,7 +130,7 @@ public sealed class DrillRunReprotectCommandTests : CommandUnitTestsBase<DrillRu
             DrillRun,
             null,
             null,
-            Arg.Any<CancellationToken>());
+            Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]
@@ -146,7 +147,7 @@ public sealed class DrillRunReprotectCommandTests : CommandUnitTestsBase<DrillRu
             Arg.Any<string>(),
             Arg.Any<IReadOnlyList<string>?>(),
             Arg.Any<string?>(),
-            Arg.Any<CancellationToken>())
+            Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new RequestFailedException((int)status, providerDetails));
 
         var response = await ExecuteCommandAsync(

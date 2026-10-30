@@ -18,11 +18,13 @@ public sealed partial class ResilienceManagementService
         string? tenantIdOrName,
         CancellationToken cancellationToken,
         ArmClientOptions? armClientOptions = null,
-        bool disableRetries = false)
+        bool disableRetries = false,
+        BinaryData? requestContent = null)
     {
         armClientOptions = CreateGoalContractArmClientOptions(
             armClientOptions,
-            disableRetries);
+            disableRetries,
+            requestContent);
 
 #if DEBUG
         if (Environment.GetEnvironmentVariable("MCP_GOALS_TEST_ECY") == "true")
@@ -40,11 +42,14 @@ public sealed partial class ResilienceManagementService
 
     internal static ArmClientOptions CreateGoalContractArmClientOptions(
         ArmClientOptions? options = null,
-        bool disableRetries = false)
+        bool disableRetries = false,
+        BinaryData? requestContent = null)
     {
         options ??= new ArmClientOptions();
         options.AddPolicy(new ResilienceManagementRoutingPolicy(), HttpPipelinePosition.PerCall);
-        options.AddPolicy(new GoalAssignmentContractRequestPolicy(), HttpPipelinePosition.PerCall);
+        options.AddPolicy(
+            new GoalAssignmentContractRequestPolicy(requestContent),
+            HttpPipelinePosition.PerCall);
         if (disableRetries)
         {
             options.Retry.MaxRetries = 0;
@@ -55,15 +60,25 @@ public sealed partial class ResilienceManagementService
 
     public async Task<GoalAssignmentInfo> CreateGoalAssignmentAsync(
         string serviceGroup, string goalAssignment, bool requireZonalResiliency,
+        bool requireRegionalResiliency, string? regionalRecoveryPointObjective,
+        string? regionalRecoveryTimeObjective,
         IReadOnlyList<string>? serviceLevelResourceIds = null, string? tenant = null, CancellationToken cancellationToken = default)
     {
+        IReadOnlyList<string> serviceLevelResources = serviceLevelResourceIds ?? [];
+        BinaryData wireContent = CreateGoalAssignmentWireContent(
+            requireZonalResiliency,
+            requireRegionalResiliency,
+            regionalRecoveryPointObjective,
+            regionalRecoveryTimeObjective,
+            serviceLevelResources);
         ArmClient client = await CreateGoalArmClientAsync(
             tenantIdOrName: tenant,
             cancellationToken: cancellationToken,
-            disableRetries: true);
+            disableRetries: true,
+            requestContent: wireContent);
         ResourceIdentifier id = GoalAssignmentResource.CreateResourceIdentifier(serviceGroup, goalAssignment);
         GoalAssignmentCollection assignments = client.GetGoalAssignments(id.Parent);
-        GoalAssignmentData data = CreateGoalAssignmentData(requireZonalResiliency, serviceLevelResourceIds ?? []);
+        GoalAssignmentData data = CreateGoalAssignmentData(requireZonalResiliency, serviceLevelResources);
         ArmOperation operation = await assignments.CreateOrUpdateAsync(WaitUntil.Started, goalAssignment, data, cancellationToken);
         await WaitForGoalAssignmentCompletionAsync(operation, cancellationToken);
         Response<GoalAssignmentResource> response = await assignments.GetAsync(goalAssignment, cancellationToken);
@@ -82,8 +97,29 @@ public sealed partial class ResilienceManagementService
             GoalAssignmentResource.CreateResourceIdentifier(serviceGroup, goalAssignment));
         Response<GoalAssignmentResource> current = await resource.GetAsync(cancellationToken);
         using JsonDocument document = JsonDocument.Parse(current.GetRawResponse().Content);
-        bool requireZonalResiliency = GetOptionalBoolean(GetOptionalObject(document.RootElement, "properties"), "requireZonalResiliency") ??
+        JsonElement currentProperties = GetOptionalObject(document.RootElement, "properties");
+        bool requireZonalResiliency = GetOptionalBoolean(currentProperties, "requireZonalResiliency") ??
             throw new InvalidOperationException("The existing assignment has no GA zonal requirement to preserve.");
+        bool requireRegionalResiliency =
+            GetOptionalBoolean(currentProperties, "requireRegionalResiliency") ?? false;
+        JsonElement regionalObjectives = GetOptionalObject(currentProperties, "regionalObjectives");
+        string? regionalRecoveryPointObjective =
+            GetOptionalString(regionalObjectives, "targetRecoveryPointObjective");
+        string? regionalRecoveryTimeObjective =
+            GetOptionalString(regionalObjectives, "targetRecoveryTimeObjective");
+        BinaryData wireContent = CreateGoalAssignmentWireContent(
+            requireZonalResiliency,
+            requireRegionalResiliency,
+            regionalRecoveryPointObjective,
+            regionalRecoveryTimeObjective,
+            serviceLevelResourceIds);
+        ArmClient mutationClient = await CreateGoalArmClientAsync(
+            tenantIdOrName: tenant,
+            cancellationToken: cancellationToken,
+            disableRetries: true,
+            requestContent: wireContent);
+        resource = mutationClient.GetGoalAssignmentResource(
+            GoalAssignmentResource.CreateResourceIdentifier(serviceGroup, goalAssignment));
         GoalAssignmentData data = CreateGoalAssignmentData(requireZonalResiliency, serviceLevelResourceIds);
         ArmOperation operation = await resource.UpdateAsync(WaitUntil.Started, data, cancellationToken);
         await WaitForGoalAssignmentCompletionAsync(operation, cancellationToken);
@@ -101,6 +137,49 @@ public sealed partial class ResilienceManagementService
         }
 
         return new GoalAssignmentData { Properties = properties };
+    }
+
+    internal static BinaryData CreateGoalAssignmentWireContent(
+        bool requireZonalResiliency,
+        bool requireRegionalResiliency,
+        string? regionalRecoveryPointObjective,
+        string? regionalRecoveryTimeObjective,
+        IReadOnlyList<string> serviceLevelResourceIds)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WritePropertyName("properties");
+            writer.WriteStartObject();
+            writer.WriteBoolean("requireZonalResiliency", requireZonalResiliency);
+            writer.WriteBoolean("requireRegionalResiliency", requireRegionalResiliency);
+            if (requireRegionalResiliency)
+            {
+                writer.WritePropertyName("regionalObjectives");
+                writer.WriteStartObject();
+                writer.WriteString(
+                    "targetRecoveryPointObjective",
+                    regionalRecoveryPointObjective);
+                writer.WriteString(
+                    "targetRecoveryTimeObjective",
+                    regionalRecoveryTimeObjective);
+                writer.WriteEndObject();
+            }
+            writer.WritePropertyName("serviceLevelResources");
+            writer.WriteStartArray();
+            foreach (string resourceId in serviceLevelResourceIds)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("serviceLevelIndicatorResourceId", resourceId);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+
+        return BinaryData.FromBytes(stream.ToArray());
     }
 
     public async Task<bool> DeleteGoalAssignmentAsync(

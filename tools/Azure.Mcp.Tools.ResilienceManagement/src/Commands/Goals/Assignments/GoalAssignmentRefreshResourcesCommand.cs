@@ -21,7 +21,7 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Goals.Assignments;
         for those. Returns the service operation ID and Accepted status unless already completed.
         """,
     OperationPlane = ToolOperationPlane.Control,
-    Destructive = false, Idempotent = false, OpenWorld = false, ReadOnly = false, Secret = false, LocalRequired = false)]
+    Destructive = true, Idempotent = false, OpenWorld = false, ReadOnly = false, Secret = false, LocalRequired = false)]
 public sealed class GoalAssignmentRefreshResourcesCommand(
     ILogger<GoalAssignmentRefreshResourcesCommand> logger,
     IResilienceManagementService service)

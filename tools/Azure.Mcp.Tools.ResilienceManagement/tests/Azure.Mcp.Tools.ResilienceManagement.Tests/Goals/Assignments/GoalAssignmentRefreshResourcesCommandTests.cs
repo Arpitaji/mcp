@@ -10,7 +10,6 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Tests.Goals.Assignments;
 public sealed class GoalAssignmentRefreshResourcesCommandTests : GoalAssignmentCommandTestsBase<GoalAssignmentRefreshResourcesCommand, GoalAssignmentOperationResult>
 {
     protected override string CommandName => "refresh-resources";
-    protected override bool Destructive => false;
     protected override bool Idempotent => false;
     protected override GoalAssignmentOperationResult ExpectedResult => new("sg1", "assignment1", OperationId, "Accepted", false);
     protected override Task<GoalAssignmentOperationResult> ConfigureServiceCall() =>

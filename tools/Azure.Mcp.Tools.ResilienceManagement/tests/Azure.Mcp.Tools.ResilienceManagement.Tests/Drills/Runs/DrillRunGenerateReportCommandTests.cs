@@ -45,7 +45,7 @@ public sealed class DrillRunGenerateReportCommandTests
     [Fact]
     public async Task ExecuteAsync_ReturnsOperationWhenGenerationIsStillRunning()
     {
-        Service.GenerateDrillRunReportAsync(ServiceGroup, Drill, DrillRun, "tenant1", Arg.Any<CancellationToken>())
+        Service.GenerateDrillRunReportAsync(ServiceGroup, Drill, DrillRun, "tenant1", null, Arg.Any<CancellationToken>())
             .Returns(new DrillRunGenerateReportResult("operation1", false, null));
 
         var response = await ExecuteCommandAsync(
@@ -74,7 +74,7 @@ public sealed class DrillRunGenerateReportCommandTests
             "1.0",
             null);
         Service.GenerateDrillRunReportAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new DrillRunGenerateReportResult("operation1", true, report));
 
         var response = await ExecuteCommandAsync(
@@ -110,7 +110,7 @@ public sealed class DrillRunGenerateReportCommandTests
         Assert.Equal(HttpStatusCode.BadRequest, response.Status);
         Assert.Contains("single non-empty path segment", response.Message);
         await Service.DidNotReceive().GenerateDrillRunReportAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>());
     }
 
     [Theory]
@@ -123,7 +123,7 @@ public sealed class DrillRunGenerateReportCommandTests
     {
         const string providerDetails = "Sensitive provider details: request-id=123; endpoint=https://example.invalid";
         Service.GenerateDrillRunReportAsync(
-            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new RequestFailedException((int)status, providerDetails));
 
         var response = await ExecuteCommandAsync(

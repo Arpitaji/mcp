@@ -75,11 +75,11 @@ option. GET selects an assignment with `name`; mutations use `goal-assignment`.
 ## Execute a Drill
 
 1. Get the drill and confirm it is not already running.
-2. Run `mcp_azure_mcp_ser_resiliency_drill_check-resync-readiness` when configuration may be stale or a current readiness result is required; retain the operation ID and do not treat acceptance as readiness.
-3. Validate with `mcp_azure_mcp_ser_resiliency_drill_validate-for-execution`. Supply source locations and optionally the intended operation (`Failover`, `Reprotect`, `FailoverReverse`, or `ReprotectReverse`). Sources may be omitted only for explicit `Reprotect`; omitting the operation still requires sources.
+2. Choose a canonical operation GUID and run `mcp_azure_mcp_ser_resiliency_drill_check-resync-readiness` with that operation ID when configuration may be stale or a current readiness result is required; retain the operation ID and do not treat acceptance as readiness.
+3. Validate with `mcp_azure_mcp_ser_resiliency_drill_validate-for-execution`, supplying a canonical operation GUID, source locations, and optionally the intended operation (`Failover`, `Reprotect`, `FailoverReverse`, or `ReprotectReverse`). Sources may be omitted only for explicit `Reprotect`; omitting the operation still requires sources.
 4. Stop and report blockers when validation does not qualify the drill for execution.
 5. Ask for `Failover` versus `TestFailover` if not explicit.
-6. Start with `mcp_azure_mcp_ser_resiliency_drill_start` and retain the operation ID.
+6. Start with `mcp_azure_mcp_ser_resiliency_drill_start`, supplying a canonical operation GUID for the logical request, and retain the operation ID.
 7. Inspect runs with `mcp_azure_mcp_ser_resiliency_drill_run_get` when status is requested.
 8. Inspect run targets with `mcp_azure_mcp_ser_resiliency_drill_run_resource_get` when per-resource results are needed.
 9. Use `mcp_azure_mcp_ser_resiliency_drill_run_mark-complete` only when the user explicitly wants to stop retries for the named active stage and allow the run to proceed.
@@ -92,7 +92,7 @@ To update monitoring, send only the fields being changed. A supplied SLI array i
 
 ## Create a Recovery Plan
 
-1. Require plan name, `Zonal` plan type, description, and identity choice.
+1. Require plan name, `Zonal` or `Regional` plan type, description, and identity choice.
 2. For `UserAssigned` or `SystemAndUserAssigned`, require the full identity ARM ID.
 3. Build group/action JSON using [payload reference](./payloads.md).
 4. Create the plan with `mcp_azure_mcp_ser_resiliency_recoveryplan_create`.

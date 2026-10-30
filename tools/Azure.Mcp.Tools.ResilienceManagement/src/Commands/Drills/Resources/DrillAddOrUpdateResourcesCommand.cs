@@ -21,7 +21,7 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Drills.Resources;
     Id = "3f0c8d4e-6b2a-4f9d-8f1c-2a7b6d1e94c5",
     Name = "add-or-update",
     Title = "Add or Update Resilience Drill Resources",
-    Description = "Updates or excludes the resources of a resilience drill in a service group, or adds new drill resources. Configure fault duration and target inclusions/exclusions using drill-resource ARM IDs, not VM IDs. Starts the resource update and returns its operation ID.",
+    Description = "Updates or excludes the resources of a resilience drill in a service group, or adds new drill resources. Configure fault duration and target inclusions/exclusions using drill-resource ARM IDs, not VM IDs. Starts the resource update and returns its operation ID. Accepts an optional caller-owned operation ID in canonical GUID format; reuse it for the same logical request, or omit it to generate a new GUID.",
     OperationPlane = ToolOperationPlane.Control,
     Destructive = true,
     Idempotent = true,
@@ -39,6 +39,7 @@ public sealed class DrillAddOrUpdateResourcesCommand(ILogger<DrillAddOrUpdateRes
     public override void ValidateOptions(DrillAddOrUpdateResourcesOptions options, ValidationResult validationResult)
     {
         base.ValidateOptions(options, validationResult);
+        ResilienceManagementOperationIdValidation.Validate(options.OperationId, validationResult);
 
         ValidatePathSegment(options.ServiceGroup, "--service-group", validationResult);
         ValidatePathSegment(options.Drill, "--drill", validationResult);
@@ -68,6 +69,7 @@ public sealed class DrillAddOrUpdateResourcesCommand(ILogger<DrillAddOrUpdateRes
                 options.Drill,
                 content,
                 options.Tenant,
+                ResilienceManagementOperationIdValidation.Normalize(options.OperationId),
                 cancellationToken);
 
             context.Response.Results = ResponseResult.Create(

@@ -171,37 +171,4 @@ public sealed partial class ResilienceManagementServiceTests
         Assert.DoesNotContain("selectedResourceIds", retry.ToString(), StringComparison.Ordinal);
     }
 
-    private static ResilienceManagementService CreateService(HttpMessageHandler handler)
-    {
-        var azureService = Substitute.For<IAzureService>();
-        var cloudConfiguration = Substitute.For<IAzureCloudConfiguration>();
-        cloudConfiguration.ArmEnvironment.Returns(ArmEnvironment.AzurePublicCloud);
-        azureService.CloudConfiguration.Returns(cloudConfiguration);
-        azureService.ResolveTenantIdAsync(
-            Arg.Any<string?>(),
-            Arg.Any<CancellationToken>()).Returns((string?)null);
-        azureService.IsSubscriptionId(Arg.Any<string>())
-            .Returns(call => Guid.TryParse(call.Arg<string>(), out _));
-        azureService.When(service => service.ConfigureArmClientOptions(
-            Arg.Any<ArmClientOptions>()))
-            .Do(call => call.Arg<ArmClientOptions>().Transport =
-                new HttpClientTransport(new HttpClient(handler)));
-        azureService.GetTokenCredentialAsync(
-            Arg.Any<string?>(),
-            Arg.Any<CancellationToken>()).Returns(new FakeTokenCredential());
-        return new ResilienceManagementService(azureService);
-    }
-
-    private sealed class FakeTokenCredential : TokenCredential
-    {
-        public override AccessToken GetToken(
-            TokenRequestContext requestContext,
-            CancellationToken cancellationToken) =>
-            new("fake-token", DateTimeOffset.UtcNow.AddHours(1));
-
-        public override ValueTask<AccessToken> GetTokenAsync(
-            TokenRequestContext requestContext,
-            CancellationToken cancellationToken) =>
-            new(GetToken(requestContext, cancellationToken));
-    }
 }

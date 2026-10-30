@@ -18,7 +18,9 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Drills.Runs;
     Description = """
         Generates or refreshes the report for a resilience drill run; a finalized report is left unchanged. It starts the
         report generation operation and returns the operation ID, whether it has completed, and the report summary when
-        available: generation status, per-stage statuses, available formats, and last generated time.
+        available: generation status, per-stage statuses, available formats, and last generated time. Accepts an optional
+        caller-owned operation ID in canonical GUID format; reuse it for the same logical request, or omit it to generate
+        a new GUID.
         """,
     OperationPlane = ToolOperationPlane.Control,
     Destructive = false,
@@ -37,6 +39,7 @@ public sealed class DrillRunGenerateReportCommand(ILogger<DrillRunGenerateReport
     {
         base.ValidateOptions(options, validationResult);
 
+        ResilienceManagementOperationIdValidation.Validate(options.OperationId, validationResult);
         ValidatePathSegment(options.ServiceGroup, "service group", validationResult);
         ValidatePathSegment(options.Drill, "drill", validationResult);
         ValidatePathSegment(options.DrillRun, "drill run", validationResult);
@@ -51,6 +54,7 @@ public sealed class DrillRunGenerateReportCommand(ILogger<DrillRunGenerateReport
                 options.Drill,
                 options.DrillRun,
                 options.Tenant,
+                ResilienceManagementOperationIdValidation.Normalize(options.OperationId),
                 cancellationToken);
 
             context.Response.Results = ResponseResult.Create(

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Net;
+using System.Text.Json;
 using Azure.Core;
 using Azure.Core.Pipeline;
 using Azure.Mcp.Tools.ResilienceManagement.Services;
@@ -25,6 +26,7 @@ public sealed class ContractRequestPolicyTests
 
     [Theory]
     [InlineData("PUT", "", """{"properties":{"serviceLevelResources":[]}}""")]
+    [InlineData("PATCH", "", """{"properties":{"serviceLevelResources":[]}}""")]
     [InlineData("GET", "", null)]
     [InlineData("GET", "/goalResources/00000000-0000-0000-0000-000000000001", null)]
     [InlineData("POST", "/recommendCapacity", """{"resourceIds":["/subscriptions/sub1/resourceGroups/rg1/providers/Microsoft.Storage/storageAccounts/a1"]}""")]
@@ -35,7 +37,7 @@ public sealed class ContractRequestPolicyTests
         string suffix,
         string? body)
     {
-        BinaryData? replacement = method == "PUT"
+        BinaryData? replacement = method is "PUT" or "PATCH"
             ? BinaryData.FromString(body!)
             : null;
         CapturedRequest request = await SendAsync(
@@ -189,6 +191,58 @@ public sealed class ContractRequestPolicyTests
             0,
             ResilienceManagementService.CreateNonIdempotentArmClientOptions()
                 .Retry.MaxRetries);
+    }
+
+    [Fact]
+    public void GoalWireContent_ContainsRegionalContractAndServiceLevelResources()
+    {
+        BinaryData content = ResilienceManagementService.CreateGoalAssignmentWireContent(
+            requireZonalResiliency: false,
+            requireRegionalResiliency: true,
+            regionalRecoveryPointObjective: "PT5M",
+            regionalRecoveryTimeObjective: "PT1H",
+            serviceLevelResourceIds:
+            [
+                "/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.Monitor/slis/sli1"
+            ]);
+
+        using JsonDocument document = JsonDocument.Parse(content);
+        JsonElement properties = document.RootElement.GetProperty("properties");
+        Assert.False(properties.GetProperty("requireZonalResiliency").GetBoolean());
+        Assert.True(properties.GetProperty("requireRegionalResiliency").GetBoolean());
+        Assert.Equal(
+            "PT5M",
+            properties.GetProperty("regionalObjectives")
+                .GetProperty("targetRecoveryPointObjective")
+                .GetString());
+        Assert.Equal(
+            "PT1H",
+            properties.GetProperty("regionalObjectives")
+                .GetProperty("targetRecoveryTimeObjective")
+                .GetString());
+        Assert.Equal(
+            "/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.Monitor/slis/sli1",
+            properties.GetProperty("serviceLevelResources")[0]
+                .GetProperty("serviceLevelIndicatorResourceId")
+                .GetString());
+    }
+
+    [Fact]
+    public void GoalWireContent_ZonalContractOmitsRegionalObjectives()
+    {
+        BinaryData content = ResilienceManagementService.CreateGoalAssignmentWireContent(
+            requireZonalResiliency: true,
+            requireRegionalResiliency: false,
+            regionalRecoveryPointObjective: null,
+            regionalRecoveryTimeObjective: null,
+            serviceLevelResourceIds: []);
+
+        using JsonDocument document = JsonDocument.Parse(content);
+        JsonElement properties = document.RootElement.GetProperty("properties");
+        Assert.True(properties.GetProperty("requireZonalResiliency").GetBoolean());
+        Assert.False(properties.GetProperty("requireRegionalResiliency").GetBoolean());
+        Assert.False(properties.TryGetProperty("regionalObjectives", out _));
+        Assert.Empty(properties.GetProperty("serviceLevelResources").EnumerateArray());
     }
 
     private static async Task<CapturedRequest> SendAsync(

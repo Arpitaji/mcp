@@ -16,5 +16,8 @@ internal static class ResilienceManagementOperationIdValidation
         }
     }
 
-    public static string? Normalize(string? operationId) => operationId;
+    public static string? Normalize(string? operationId) =>
+        operationId is null
+            ? null
+            : Guid.ParseExact(operationId, "D").ToString("D");
 }

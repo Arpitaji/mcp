@@ -3,14 +3,21 @@
 // cspell:ignore slis
 
 using System.ClientModel.Primitives;
+using System.Net;
+using System.Text;
 using System.Text.Json;
 using Azure.Core;
+using Azure.Core.Pipeline;
+using Azure.Mcp.Core.Services.Azure;
 using Azure.Mcp.Tools.ResilienceManagement.Commands;
 using Azure.Mcp.Tools.ResilienceManagement.Models;
 using Azure.Mcp.Tools.ResilienceManagement.Services;
+using Azure.ResourceManager;
 using Azure.ResourceManager.Models;
 using Azure.ResourceManager.ResilienceManagement;
 using Azure.ResourceManager.ResilienceManagement.Models;
+using Microsoft.Mcp.Core.Services.Azure.Authentication;
+using NSubstitute;
 using Xunit;
 
 namespace Azure.Mcp.Tools.ResilienceManagement.Tests.Services;
@@ -51,6 +58,72 @@ public sealed partial class ResilienceManagementServiceTests
         Assert.Equal("Succeeded", result.Properties.ProvisioningState);
         Assert.Null(result.Properties.ServiceLevelResources);
         Assert.Null(result.Properties.ErrorDetails);
+    }
+
+    [Fact]
+    public void MapGoalAssignment_PreservesRegionalIntentAndObjectives()
+    {
+        BinaryData response = BinaryData.FromObjectAsJson(new
+        {
+            name = "goal",
+            properties = new
+            {
+                requireZonalResiliency = false,
+                requireRegionalResiliency = true,
+                regionalObjectives = new
+                {
+                    targetRecoveryPointObjective = "PT5M",
+                    targetRecoveryTimeObjective = "PT1H"
+                },
+                provisioningState = "Succeeded"
+            }
+        });
+        GoalAssignmentData data = ModelReaderWriter.Read<GoalAssignmentData>(response)!;
+
+        GoalAssignmentInfo result = ResilienceManagementService.MapGoalAssignment(data, response);
+
+        Assert.NotNull(result.Properties);
+        Assert.False(result.Properties.RequireZonalResiliency);
+        Assert.True(result.Properties.RequireRegionalResiliency);
+        Assert.Equal("PT5M", result.Properties.RegionalObjectives?.TargetRecoveryPointObjective);
+        Assert.Equal("PT1H", result.Properties.RegionalObjectives?.TargetRecoveryTimeObjective);
+    }
+
+    [Fact]
+    public async Task UpdateGoalAssignment_PreservesRegionalContractInPutBody()
+    {
+        const string sliId =
+            "/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.Monitor/slis/sli1";
+        var handler = new GoalAssignmentUpdateRecordingHandler();
+        ResilienceManagementService service = CreateService(handler);
+
+        GoalAssignmentInfo result = await service.UpdateGoalAssignmentAsync(
+            "sg1",
+            "goal1",
+            [sliId],
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.NotNull(handler.MutationBody);
+        using JsonDocument request = JsonDocument.Parse(handler.MutationBody);
+        JsonElement properties = request.RootElement.GetProperty("properties");
+        Assert.False(properties.GetProperty("requireZonalResiliency").GetBoolean());
+        Assert.True(properties.GetProperty("requireRegionalResiliency").GetBoolean());
+        Assert.Equal(
+            "PT5M",
+            properties.GetProperty("regionalObjectives")
+                .GetProperty("targetRecoveryPointObjective")
+                .GetString());
+        Assert.Equal(
+            "PT1H",
+            properties.GetProperty("regionalObjectives")
+                .GetProperty("targetRecoveryTimeObjective")
+                .GetString());
+        Assert.Equal(
+            sliId,
+            properties.GetProperty("serviceLevelResources")[0]
+                .GetProperty("serviceLevelIndicatorResourceId")
+                .GetString());
+        Assert.True(result.Properties?.RequireRegionalResiliency);
     }
 
     [Fact]
@@ -180,6 +253,71 @@ public sealed partial class ResilienceManagementServiceTests
         Assert.Equal("zone1", mapped.Properties.GetProperty("activePhysicalZones")[0].GetString());
         Assert.Equal("zone2", mapped.Properties.GetProperty("recoveryPhysicalZones")[0].GetString());
         Assert.False(mapped.Properties.TryGetProperty("drillType", out _));
+    }
+
+    [Fact]
+    public void ResolveOperationId_NormalizesCallerOwnedGuid()
+    {
+        string result = ResilienceManagementService.ResolveOperationId("ABCDEFAB-CDEF-ABCD-EFAB-CDEFABCDEFAB");
+
+        Assert.Equal("abcdefab-cdef-abcd-efab-cdefabcdefab", result);
+    }
+
+    [Fact]
+    public void ResolveOperationId_GeneratesCanonicalGuidWhenOmitted()
+    {
+        string first = ResilienceManagementService.ResolveOperationId(null);
+        string second = ResilienceManagementService.ResolveOperationId(null);
+
+        Assert.True(Guid.TryParseExact(first, "D", out _));
+        Assert.True(Guid.TryParseExact(second, "D", out _));
+        Assert.NotEqual(first, second);
+    }
+
+    [Theory]
+    [InlineData("abcdefabcdefabcdefabcdefabcdefab")]
+    [InlineData("{abcdefab-cdef-abcd-efab-cdefabcdefab}")]
+    [InlineData("not-a-guid")]
+    [InlineData("")]
+    public void ResolveOperationId_RejectsNonCanonicalGuid(string operationId)
+    {
+        Assert.Throws<ArgumentException>(() => ResilienceManagementService.ResolveOperationId(operationId));
+    }
+
+    [Fact]
+    public async Task StartDrillAsync_ForwardsCallerOperationIdToSdkAndResult()
+    {
+        const string operationId = "abcdefab-cdef-abcd-efab-cdefabcdefab";
+        var handler = new OperationIdRecordingHandler();
+        var service = CreateService(handler);
+
+        string result = await service.StartDrillAsync(
+            "sg1",
+            "drill1",
+            "Failover",
+            operationId: operationId,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(operationId, result);
+        Assert.Equal(operationId, handler.OperationId);
+        Assert.Equal(operationId, handler.QueryOperationId);
+    }
+
+    [Fact]
+    public async Task StartDrillAsync_GeneratesOperationIdForSdkAndResultWhenOmitted()
+    {
+        var handler = new OperationIdRecordingHandler();
+        var service = CreateService(handler);
+
+        string result = await service.StartDrillAsync(
+            "sg1",
+            "drill1",
+            "Failover",
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.True(Guid.TryParseExact(result, "D", out _));
+        Assert.Equal(result, handler.OperationId);
+        Assert.Equal(result, handler.QueryOperationId);
     }
 
     [Theory]
@@ -667,8 +805,11 @@ public sealed partial class ResilienceManagementServiceTests
             }
         }))!;
 
-        RecoveryPlanUpdateResourcesResult result = ResilienceManagementService.CreateRecoveryPlanUpdateResourcesResult([failedResource]);
+        RecoveryPlanUpdateResourcesResult result = ResilienceManagementService.CreateRecoveryPlanUpdateResourcesResult(
+            "11111111-1111-1111-1111-111111111111",
+            [failedResource]);
 
+        Assert.Equal("11111111-1111-1111-1111-111111111111", result.OperationId);
         RecoveryPlanUpdateResourcesFailedResource failedResult = Assert.Single(result.FailedResources);
         Assert.Equal(failedResource.Id.ToString(), failedResult.RecoveryResourceId);
         Assert.Equal("12345678-9012-3456-7890-123456789012", failedResult.RecoveryResourceUniqueId);
@@ -1000,6 +1141,36 @@ public sealed partial class ResilienceManagementServiceTests
         Assert.Equal("12345678-9012-3456-7890-123456789013", additionalGroup.GroupUniqueId);
         Assert.Equal(1, additionalGroup.OrderId);
         Assert.Equal("additional", additionalGroup.Description);
+    }
+
+    [Theory]
+    [InlineData(RecoveryPlanKind.Zonal, "Zonal")]
+    [InlineData(RecoveryPlanKind.Regional, "Regional")]
+    public void CreateRecoveryPlanData_SerializesPlanTypeForGeneratedClient(RecoveryPlanKind planType, string expectedPlanType)
+    {
+        var recoveryGroups = ModelReaderWriter.Read<RecoveryGroupsSetting>(BinaryData.FromObjectAsJson(new
+        {
+            defaultGroup = new
+            {
+                properties = new
+                {
+                    groupUniqueId = "12345678-9012-3456-7890-123456789012",
+                    orderId = 0,
+                    description = "default"
+                }
+            },
+            additionalGroups = Array.Empty<object>()
+        }))!;
+        var identity = new ManagedServiceIdentity(ManagedServiceIdentityType.SystemAssigned);
+
+        RecoveryPlanData data = ResilienceManagementService.CreateRecoveryPlanData(
+            planType,
+            "description",
+            recoveryGroups,
+            identity);
+        using JsonDocument payload = JsonDocument.Parse(ModelReaderWriter.Write(data).ToMemory());
+
+        Assert.Equal(expectedPlanType, payload.RootElement.GetProperty("properties").GetProperty("planType").GetString());
     }
 
     [Fact]
@@ -1546,5 +1717,103 @@ public sealed partial class ResilienceManagementServiceTests
             StagingStorageAccountResourceId = new ResourceIdentifier("/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/staging")
         });
         return setting;
+    }
+
+    private static ResilienceManagementService CreateService(HttpMessageHandler handler)
+    {
+        var azureService = Substitute.For<IAzureService>();
+        var cloudConfiguration = Substitute.For<IAzureCloudConfiguration>();
+        cloudConfiguration.ArmEnvironment.Returns(ArmEnvironment.AzurePublicCloud);
+        azureService.CloudConfiguration.Returns(cloudConfiguration);
+        azureService.ResolveTenantIdAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns((string?)null);
+        azureService.IsSubscriptionId(Arg.Any<string>())
+            .Returns(call => Guid.TryParse(call.Arg<string>(), out _));
+        azureService.GetClient(Arg.Any<string?>()).Returns(new HttpClient(handler));
+        azureService.When(service => service.ConfigureArmClientOptions(
+            Arg.Any<ArmClientOptions>()))
+            .Do(call => call.Arg<ArmClientOptions>().Transport =
+                new HttpClientTransport(new HttpClient(handler)));
+        azureService.GetTokenCredentialAsync(Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(new FakeTokenCredential());
+        return new ResilienceManagementService(azureService);
+    }
+
+    private sealed class OperationIdRecordingHandler : HttpMessageHandler
+    {
+        public string? OperationId { get; private set; }
+        public string? QueryOperationId { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            OperationId = request.Headers.TryGetValues("operation-id", out IEnumerable<string>? values)
+                ? Assert.Single(values)
+                : null;
+            QueryOperationId = System.Web.HttpUtility
+                .ParseQueryString(request.RequestUri!.Query)
+                .Get("operationId");
+
+            var response = new HttpResponseMessage(HttpStatusCode.Accepted)
+            {
+                Content = new StringContent("{}", Encoding.UTF8, "application/json")
+            };
+            response.Headers.TryAddWithoutValidation(
+                "Azure-AsyncOperation",
+                "https://management.azure.com/providers/Microsoft.AzureResilienceManagement/locations/westus2/operations/test?api-version=2025-08-01");
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class GoalAssignmentUpdateRecordingHandler : HttpMessageHandler
+    {
+        public string? MutationBody { get; private set; }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            const string assignment = """
+                {
+                  "id": "/providers/Microsoft.Management/serviceGroups/sg1/providers/Microsoft.AzureResilienceManagement/goalAssignments/goal1",
+                  "name": "goal1",
+                  "type": "Microsoft.AzureResilienceManagement/goalAssignments",
+                  "properties": {
+                    "requireZonalResiliency": false,
+                    "requireRegionalResiliency": true,
+                    "regionalObjectives": {
+                      "targetRecoveryPointObjective": "PT5M",
+                      "targetRecoveryTimeObjective": "PT1H"
+                    },
+                    "serviceLevelResources": [],
+                    "provisioningState": "Succeeded"
+                  }
+                }
+                """;
+
+            if (request.Method != HttpMethod.Get && request.Content is not null)
+            {
+                MutationBody = await request.Content.ReadAsStringAsync(cancellationToken);
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(assignment, Encoding.UTF8, "application/json")
+            };
+        }
+    }
+
+    private sealed class FakeTokenCredential : TokenCredential
+    {
+        public override AccessToken GetToken(
+            TokenRequestContext requestContext,
+            CancellationToken cancellationToken) =>
+            new("fake-token", DateTimeOffset.UtcNow.AddHours(1));
+
+        public override ValueTask<AccessToken> GetTokenAsync(
+            TokenRequestContext requestContext,
+            CancellationToken cancellationToken) =>
+            new(GetToken(requestContext, cancellationToken));
     }
 }

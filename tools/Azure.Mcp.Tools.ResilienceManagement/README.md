@@ -13,7 +13,9 @@ SDK contract.
 Goal Assignment create/get and the recommend-capacity, refresh-resources, and
 update-resources actions use the same current contract. Goal responses preserve
 `serviceLevelResources` and `errorDetails` through model mapping and source-generated
-JSON serialization.
+JSON serialization. Create accepts exactly one Zonal or Regional intent. Regional
+assignments require recovery point and recovery time objectives, and later SLI
+updates preserve those Regional fields through an exact wire-body replacement.
 
 Recovery Plan, Recovery Resource, Recovery Job, action, and operation-status polling
 requests also use `2026-10-31-preview` instead of the generated SDK's `2026-10-01`
@@ -27,6 +29,11 @@ Both policies retain the centralized `AZURE_RESILIENCY_ARM_ENDPOINT` endpoint an
 optional `AZURE_RESILIENCY_ROUTING_LOCATION` header behavior. Non-idempotent
 submissions disable automatic Azure SDK retries; callers must explicitly retry after
 observing the latest service state.
+
+Recovery Plan, Drill, Drill Run, report-generation, and Recovery Job actions accept
+an optional caller-owned operation ID in canonical GUID format. IDs are normalized
+before submission and returned to the caller so an uncertain request can be
+reconciled without starting a second logical operation.
 
 The normal ARM SSRF allowlist admits only the shipped regional QCS hosts
 `centraluseuap.management.azure.com` and `eastus2euap.management.azure.com` in

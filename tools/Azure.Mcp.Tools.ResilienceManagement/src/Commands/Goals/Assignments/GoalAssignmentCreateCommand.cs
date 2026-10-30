@@ -15,9 +15,9 @@ namespace Azure.Mcp.Tools.ResilienceManagement.Commands.Goals.Assignments;
     Name = "create",
     Title = "Create Resilience Goal Assignment",
     Description = """
-        Creates a new resilience goal assignment in a service group, with zonal resiliency required
-        (require-zonal-resiliency=true) and optional service-level indicator target resource IDs. Uses the GA goal
-        schema; no goal template is needed. Waits for provisioning and returns the created assignment. May retry
+        Creates a new resilience goal assignment in a service group with explicit Zonal or Regional resiliency intent
+        and optional service-level indicator target resource IDs. Regional assignments require both ISO 8601 recovery
+        objectives. Uses the GA goal schema; no goal template is needed. Waits for provisioning and returns the created assignment. May retry
         failed provisioning, but does not replace a successfully provisioned assignment. To change an existing
         assignment's SLI associations, use update.
         """,
@@ -31,9 +31,26 @@ public sealed class GoalAssignmentCreateCommand(
     public override void ValidateOptions(GoalAssignmentCreateOptions options, ValidationResult validationResult)
     {
         base.ValidateOptions(options, validationResult);
-        if (options.RequireZonalResiliency is not true)
+        if (options.RequireZonalResiliency is null ||
+            options.RequireRegionalResiliency is null ||
+            options.RequireZonalResiliency == options.RequireRegionalResiliency)
         {
-            validationResult.Errors.Add("The Goals service requires --require-zonal-resiliency true when creating an assignment.");
+            validationResult.Errors.Add(
+                "Exactly one of --require-zonal-resiliency and --require-regional-resiliency must be true.");
+        }
+        if (options.RequireRegionalResiliency is true &&
+            (string.IsNullOrWhiteSpace(options.RegionalRecoveryPointObjective) ||
+             string.IsNullOrWhiteSpace(options.RegionalRecoveryTimeObjective)))
+        {
+            validationResult.Errors.Add(
+                "Regional goals require --regional-recovery-point-objective and --regional-recovery-time-objective.");
+        }
+        if (options.RequireRegionalResiliency is false &&
+            (options.RegionalRecoveryPointObjective is not null ||
+             options.RegionalRecoveryTimeObjective is not null))
+        {
+            validationResult.Errors.Add(
+                "Regional recovery objectives are valid only when --require-regional-resiliency is true.");
         }
 
         GoalAssignmentValidation.ValidateServiceLevelResourceIds(options.ServiceLevelResourceIds, options.ServiceGroup, validationResult);
@@ -44,7 +61,12 @@ public sealed class GoalAssignmentCreateCommand(
         try
         {
             var assignment = await service.CreateGoalAssignmentAsync(
-                options.ServiceGroup, options.GoalAssignment, options.RequireZonalResiliency!.Value,
+                options.ServiceGroup,
+                options.GoalAssignment,
+                options.RequireZonalResiliency!.Value,
+                options.RequireRegionalResiliency!.Value,
+                options.RegionalRecoveryPointObjective,
+                options.RegionalRecoveryTimeObjective,
                 options.ServiceLevelResourceIds, options.Tenant, cancellationToken);
             context.Response.Results = ResponseResult.Create(
                 new GoalAssignmentCreateCommandResult(assignment),
