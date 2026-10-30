@@ -30,6 +30,12 @@ optional `AZURE_RESILIENCY_ROUTING_LOCATION` header behavior. Non-idempotent
 submissions disable automatic Azure SDK retries; callers must explicitly retry after
 observing the latest service state.
 
+Usage Plan and enrollment list, get, create, delete, and long-running-operation
+polling requests use the same centralized endpoint policy. For Canary QCS, set
+`AZURE_RESILIENCY_ARM_ENDPOINT` to the approved EUAP ARM origin and leave
+`AZURE_RESILIENCY_ROUTING_LOCATION` unset when no routing header was approved.
+When no endpoint override is supplied, these commands retain the public ARM default.
+
 Recovery Plan, Drill, Drill Run, report-generation, and Recovery Job actions accept
 an optional caller-owned operation ID in canonical GUID format. IDs are normalized
 before submission and returned to the caller so an uncertain request can be
